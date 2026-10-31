@@ -32,6 +32,7 @@ public class IdempotencyService {
     public static final String HEADER = "Idempotency-Key";
 
     private static final Logger log = LoggerFactory.getLogger(IdempotencyService.class);
+    private static final int MAX_OPERATION_LENGTH = 40; // idempotency_keys.operation column
     private static final Pattern KEY = Pattern.compile("[A-Za-z0-9._:-]{8,100}");
 
     private final JdbcTemplate jdbc;
@@ -48,6 +49,9 @@ public class IdempotencyService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public UUID execute(UUID userId, String key, String operation, Object request, Supplier<UUID> create) {
+        if (operation.length() > MAX_OPERATION_LENGTH) {
+            throw new IllegalArgumentException("Idempotency operation name is longer than " + MAX_OPERATION_LENGTH + ": " + operation);
+        }
         if (key == null) {
             return create.get();
         }

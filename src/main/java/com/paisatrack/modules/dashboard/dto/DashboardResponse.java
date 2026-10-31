@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import com.paisatrack.modules.account.AccountNature;
 import com.paisatrack.modules.account.AccountType;
 import com.paisatrack.modules.budget.dto.BudgetResponse;
+import com.paisatrack.modules.debt.dto.DebtResponse;
 import com.paisatrack.modules.income.dto.ExpectedIncomeResponse;
 import com.paisatrack.modules.transaction.dto.TransactionResponse;
 
@@ -28,7 +29,8 @@ public record DashboardResponse(
         @Schema(description = "Spending by top-level category over the selected range") List<CategorySpending> expenseByCategory,
         @Schema(description = "Spending per day over the selected range, zero-filled") List<DailyAmount> dailySpending,
         @Schema(description = "Last 6 months, oldest first") List<MonthlyTrend> monthlyTrend,
-        List<TransactionResponse> recentTransactions) {
+        List<TransactionResponse> recentTransactions,
+        @Schema(description = "Lending and borrowing in your default currency; not part of net worth") DebtsOverview debts) {
 
     public record Periods(Period today, Period week, Period month,
                           @Schema(description = "The from/to range, when one was requested") Period selected) {
@@ -51,6 +53,10 @@ public record DashboardResponse(
     }
 
     public record DailyAmount(LocalDate date, BigDecimal amount) {
+    }
+
+    public record DebtsOverview(BigDecimal owedToYou, BigDecimal youOwe, int overdueCount,
+                                @Schema(description = "Overdue or due within 14 days, soonest first") List<DebtResponse> dueSoon) {
     }
 
     public record MonthlyTrend(@Schema(type = "string", example = "2026-10") YearMonth month,

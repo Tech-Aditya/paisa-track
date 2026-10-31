@@ -125,7 +125,7 @@ a { color: var(--accent); }
 .segmented { display: inline-flex; padding: 3px; gap: 2px; background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 11px; }
 .segmented button {
     border: 0; background: none; padding: 6px 12px; border-radius: 8px; cursor: pointer;
-    font-size: 13px; font-weight: 550; color: var(--text-2);
+    font-size: 13px; font-weight: 550; color: var(--text-2); white-space: nowrap;
 }
 .segmented button[aria-pressed="true"] { background: var(--bg-elev); color: var(--text); box-shadow: 0 1px 3px rgba(15, 23, 42, .12); }
 
@@ -198,7 +198,7 @@ button.nav-link { width: 100%; border: 0; background: none; cursor: pointer; tex
 /* ---------- Cards & grid ---------- */
 
 .card { background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px; min-width: 0; }
-.card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
 .card-head h2 { font-size: 15px; font-weight: 650; }
 .card-head .sub { font-size: 12.5px; color: var(--text-3); font-weight: 500; margin-left: 6px; }
 
@@ -268,6 +268,20 @@ button.nav-link { width: 100%; border: 0; background: none; cursor: pointer; tex
 .donut-total { font-size: 17px; font-weight: 720; fill: var(--text); }
 .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
 
+/* ---------- Lending & borrowing ---------- */
+
+.debt-row { width: 100%; border: 0; border-bottom: 1px solid var(--border); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 0; }
+.debt-row:hover { background: var(--bg-sunken); }
+.debt-amount { display: grid; justify-items: end; gap: 4px; }
+.progress.thin { height: 4px; margin-top: 6px; }
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 12px; border-radius: 12px; background: var(--bg-sunken); }
+.fact { display: grid; gap: 2px; font-size: 13px; }
+.fact b { font-size: 16px; }
+.section-title { font-size: 12px; font-weight: 650; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
+.debt-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px; }
+.debt-stats > div { padding: 10px 12px; border-radius: 10px; background: var(--bg-sunken); display: grid; gap: 2px; }
+.debt-stats b { font-size: 17px; }
+
 /* ---------- Transactions page ---------- */
 
 .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 14px; }
@@ -329,7 +343,7 @@ dialog.sheet[open] { animation: rise .18s ease-out; }
     .filters .field { flex: none; }
     .page-head h1 { font-size: 20px; }
     .tabbar {
-        display: grid; grid-template-columns: repeat(2, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+        display: grid; grid-template-columns: repeat(3, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
         background: var(--bg-elev); border-top: 1px solid var(--border); padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
     }
     .tabbar .nav-link { flex-direction: column; justify-content: center; height: 52px; gap: 2px; font-size: 11.5px; }
@@ -344,6 +358,7 @@ dialog.sheet[open] { animation: rise .18s ease-out; }
     .donut-wrap { grid-template-columns: 1fr; justify-items: center; }
     .donut-wrap > .rows { justify-self: stretch; }
     .form-grid { grid-template-columns: 1fr; }
+    .facts { grid-template-columns: 1fr 1fr; }
     .form-grid .span-2 { grid-column: auto; }
     .toasts { left: 16px; right: 16px; bottom: 140px; }
 }

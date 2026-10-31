@@ -160,9 +160,10 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     // Only the constraint name: driver messages can contain user data (e.g. the duplicate email).
     private static String constraintName(DataIntegrityViolationException ex) {
-        return ex.getCause() instanceof org.hibernate.exception.ConstraintViolationException cve
-                ? cve.getConstraintName()
-                : "unknown";
+        if (ex.getCause() instanceof org.hibernate.exception.ConstraintViolationException cve && cve.getConstraintName() != null) {
+            return cve.getConstraintName();
+        }
+        return ex.getMostSpecificCause() instanceof java.sql.SQLException sql ? "sqlState:" + sql.getSQLState() : "unknown";
     }
 
     private static String lastPathNode(String path) {

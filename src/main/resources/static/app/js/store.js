@@ -17,6 +17,7 @@ export const store = {
     expenseCategories: () => cached('cat:EXPENSE', () => api.get('/categories?type=EXPENSE')),
     incomeCategories: () => cached('cat:INCOME', () => api.get('/categories?type=INCOME')),
     incomeSources: () => cached('sources', () => api.get('/income-sources')),
+    people: () => cached('people', () => api.get('/people')),
 
     /** Forget cached data after a change so the next read is fresh. */
     invalidate(...keys) {

@@ -3,9 +3,9 @@
 A personal finance, daily expense and money management API. It is built as a
 modular Spring Boot monolith on PostgreSQL.
 
-> **Status:** Phases 1-3 are complete: foundation and security; accounts,
-> categories and transactions; salary, budgets and the dashboard. Lending,
-> borrowing and repayments come next, in Phase 4.
+> **Status:** Phases 1-4 are complete: foundation and security; accounts,
+> categories and transactions; salary, budgets and the dashboard; lending and
+> borrowing. Loans and EMIs come next, in Phase 5.
 > Design decisions are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Tech stack
@@ -189,6 +189,20 @@ All endpoints are under `/api/v1`. Responses use the envelope
 Record a salary credit with `POST /income` and `incomeSourceId` (category and account default from the source;
 `periodMonth` defaults to the credit month).
 
+**Lending and borrowing** (all bearer). Tracked separately: never in balances, net worth, income or spending.
+
+| Method | Path | Description |
+|---|---|---|
+| GET, POST | `/lending`, `/borrowing` | List (`status=`, `personId=`) or record money lent / borrowed (`personName` or `personId`) |
+| GET, PATCH, DELETE | `/lending/{id}`, `/borrowing/{id}` | One record with repayment history; edit; delete (only without repayments) |
+| POST | `/lending/{id}/repayments` (and borrowing) | Full or partial repayment; 422 if more than outstanding |
+| POST | `/lending/{id}/write-off`, `/reopen` (and borrowing) | Close with the rest unpaid (not income or expense); undo |
+| GET | `/lending/{id}/history` (and borrowing) | Audit trail |
+| GET | `/repayments/{id}`; POST `/repayments/{id}/void` | One repayment; void it (kept in history) |
+| GET | `/debts/summary` | Owed to you and by you, per currency, with overdue totals |
+| GET | `/debts/reminders?days=14` | Open records overdue or due/reminding soon |
+| GET, POST, PATCH, DELETE | `/people`, `/people/{id}` | Contacts (delete only without records) |
+
 Error codes are listed in
 [`ErrorCode`](src/main/java/com/paisatrack/exception/ErrorCode.java).
 
@@ -228,7 +242,7 @@ src/main/java/com/paisatrack/
     <module>/            entities, repositories, services (internals package-private)
     <module>/dto/        request and response records
     <module>/web/        REST controllers
-    auth, user, account, category, transaction, income, budget, dashboard
+    auth, user, account, category, transaction, income, budget, people, debt, dashboard
 src/main/resources/
   application.yml               shared settings
   application-dev.yml           local development (default)
@@ -251,6 +265,9 @@ inserted as text.
   month, 30 days, custom.
 - **Transactions:** search, filter by type, category, account and dates; grouped
   by day with daily totals; delete (void) and restore; paging.
+- **Lending & borrowing:** what others owe you and what you owe, with overdue flags;
+  each record opens a panel with repayment history, **Record repayment**, write-off,
+  reopen, delete and void.
 - **Add:** one dialog for expense, income or transfer, plus dialogs for budgets,
   accounts and income sources. Errors show next to the field. A double submit
   never creates two entries.

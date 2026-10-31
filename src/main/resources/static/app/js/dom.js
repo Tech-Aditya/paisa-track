@@ -76,6 +76,8 @@ const ICONS = {
     right: 'M9 18l6-6-6-6',
     income: 'M12 3v18M17 7.5C17 5.6 14.8 4 12 4S7 5.6 7 7.5 9.2 11 12 11s5 1.6 5 3.5S14.8 18 12 18s-5-1.6-5-3.5',
     alert: 'M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',
+    people: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8',
+    clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2',
 };
 
 export function icon(name, extraClass = '') {
@@ -143,6 +145,22 @@ export function openSheet({ title, fields, submitLabel = 'Save', submit, onClose
     dialog.showModal();
     form.querySelector('input:not([type=hidden]), select')?.focus();
     return { dialog, form, close, render };
+}
+
+/** A read-only modal with action buttons; content() is re-run by ender() after changes. */
+export function openPanel({ title, content, onClose }) {
+    const body = el('div', { class: 'sheet-body' });
+    const dialog = el('dialog', { class: 'sheet' },
+        el('div', { class: 'sheet-head' }, el('h2', { text: title }),
+            el('button', { class: 'btn ghost icon-only', type: 'button', 'aria-label': 'Close', onclick: () => close() }, icon('x'))),
+        body);
+    const close = () => { dialog.close(); dialog.remove(); onClose?.(); };
+    const render = async () => fill(body, await content({ close, render }));
+    dialog.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
+    document.body.append(dialog);
+    dialog.showModal();
+    render();
+    return { close, render };
 }
 
 function clearErrors(form) {

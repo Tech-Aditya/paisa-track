@@ -6,5 +6,10 @@ public enum AuditAction {
     VOIDED,
     RESTORED,
     DEACTIVATED,
-    ACTIVATED
+    ACTIVATED,
+    DELETED,
+    REPAID,
+    REPAYMENT_VOIDED,
+    WRITTEN_OFF,
+    REOPENED
 }

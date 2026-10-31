@@ -6,12 +6,14 @@ import { el, fill, icon, toast } from './dom.js';
 import { openTransactionDialog } from './forms.js';
 import { initials } from './format.js';
 import { store } from './store.js';
+import { renderDebts } from './views/debts.js';
 import { renderOverview } from './views/overview.js';
 import { renderTransactions } from './views/transactions.js';
 
 const ROUTES = {
     '#/overview': { label: 'Overview', iconName: 'home', render: renderOverview },
     '#/transactions': { label: 'Transactions', iconName: 'list', render: renderTransactions },
+    '#/debts': { label: 'Lending', iconName: 'people', render: renderDebts },
 };
 
 const root = document.getElementById('root');

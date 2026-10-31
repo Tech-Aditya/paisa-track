@@ -1,7 +1,7 @@
 # PaisaTrack architecture
 
-Status: Phases 1-3 (foundation and security; accounts, categories and transactions;
-salary, budgets and dashboard) are done. This document records the decisions later phases build on.
+Status: Phases 1-4 (foundation and security; accounts, categories and transactions;
+salary, budgets and dashboard; lending and borrowing) are done. This document records the decisions later phases build on.
 
 ## Shape
 
@@ -18,17 +18,22 @@ Code is split in two:
 
 Modules depend on platform, never the reverse.
 
-| Package | Responsibility |
+| Module (`modules.*`) | Responsibility |
 |---|---|
 | `auth` | Registration and login orchestration, refresh tokens (rotation, reuse detection, revocation), logout |
 | `user` | User identity, password hashing and checks, profile, preferences |
-| `security` | Spring Security filter chain, JWT encode/decode, `CurrentUser`, 401/403 responses, auth rate limiting |
 | `account` | Accounts, derived balances, default account, per-currency summary |
 | `category` | Two-level expense/income categories, default seeding |
 | `transaction` | Expenses, income, transfers, void/restore, search, daily summary |
 | `income` | Income sources, monthly expectations by effective month, expected vs received |
 | `budget` | Overall/category budgets, monthly/weekly/custom periods, utilization and alerts |
+| `people` | Contacts you lend to or borrow from |
+| `debt` | Money lent and borrowed, repayments, write-offs, overdue status, reminders |
 | `dashboard` | Read-only home-screen aggregates |
+
+| Platform (`platform.*`) | Responsibility |
+|---|---|
+| `security` | Spring Security filter chain, JWT encode/decode, `CurrentUser`, 401/403 responses, auth rate limiting |
 | `audit` | Append-only field-level audit trail (`audit_events`) |
 | `idempotency` | `Idempotency-Key` replay protection for creates |
 | `api`, `money`, `persistence` | Response envelope and paging; currency precision rules; auditable entity base |
@@ -37,10 +42,8 @@ Modules depend on platform, never the reverse.
 | `logging` | Request id, access log, slow-request warnings, startup summary |
 | `config` | Clock and auditing, OpenAPI, CORS, web app routes |
 
-The first nine rows are `modules.*`; the rest are `platform.*`.
-
 Dependencies point one way: `auth → user`, `transaction → income, account, category, user`,
-`budget → transaction`, `dashboard → everything it summarises`, all of them `→ (common, exception, validation, audit, idempotency)`.
+`budget → transaction`, `debt → people, user`, `dashboard → everything it summarises`. Every module may use `platform`.
 The `user` module never calls `auth`. When a password changes, `user`
 publishes a `PasswordChangedEvent`. `auth` handles it in the same database
 transaction and revokes that user's refresh tokens.
@@ -50,11 +53,11 @@ higher module implements: `AccountFlowProvider` (net flows for balances),
 `IncomeReceiptProvider` (received per source and pay month) and
 `CategoryUsageProvider` (is a category used) are implemented in `transaction`;
 `budget` and `income` also implement `CategoryUsageProvider` in small standalone beans
-so no two services depend on each other.
+so no two services depend on each other. `people` defines `PersonUsageProvider`, which `debt` implements.
 On registration, `UserRegisteredEvent` seeds a default Cash account and the
 default categories in the same transaction.
 
-Planned modules are `lending`, `borrowing`, `repayment`, `loan`/`emi`,
+Planned modules are `loan`/`emi`,
 `recurring`, `report`, `currency`, `notification` and `attachment`. Each will
 follow the same layout.
 
@@ -190,6 +193,32 @@ Decisions confirmed with the product owner:
   Tokens live in `sessionStorage` and refresh calls are serialised. Static files are
   sent with `Cache-Control: no-cache` (revalidated, 304 when unchanged), so a deploy
   is never stale. Phase 9 can grow it, or replace it with a framework app.
+
+## Lending and borrowing (Phase 4)
+
+Decisions confirmed with the product owner:
+
+- **Tracking only.** Money lent or borrowed lives in `debts` and `debt_repayments`,
+  not in `transactions`. It never changes account balances and is never income or
+  expense, so the principal-is-not-income/expense rules hold by construction.
+- **Net worth stays accounts-only.** What others owe you and what you owe are shown
+  next to it (`/debts/summary`, dashboard `debts`), never added in.
+- **No interest yet.** Repayments are principal only.
+- **Write-off closes the record** with the unpaid balance recorded separately; it is not
+  income or expense and can be reopened.
+- One table for both directions (`direction` LENT/BORROWED), exposed as `/lending` and
+  `/borrowing`. The original amount is never changed by a repayment; each repayment is
+  its own row, voided rather than deleted.
+- **Outstanding is derived**: principal − active repayments − written-off amount. Status
+  (OPEN, PARTIALLY_REPAID, OVERDUE, SETTLED, WRITTEN_OFF) is computed on read using the
+  user's "today".
+- **Concurrency.** Repayments, voids, write-offs and edits take a row lock on the debt, so
+  parallel repayments can't push outstanding below zero. Creates and repayments accept
+  `Idempotency-Key`.
+- **Reminders** are prepared, not sent: `remind_on` and `/debts/reminders?days=` give the
+  notifications phase what it needs.
+- People are matched by name (case-insensitive) when a record names one, so "amit" and
+  "Amit" are the same contact. A contact with records can't be deleted.
 
 ## Observability
 

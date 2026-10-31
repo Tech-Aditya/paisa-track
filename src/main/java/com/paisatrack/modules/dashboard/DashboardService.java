@@ -18,6 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 import com.paisatrack.modules.account.AccountService;
 import com.paisatrack.modules.account.dto.AccountResponse;
 import com.paisatrack.modules.budget.BudgetService;
+import com.paisatrack.modules.debt.DebtService;
+import com.paisatrack.modules.debt.dto.DebtSummaryResponse;
 import com.paisatrack.platform.money.MoneyRules;
 import com.paisatrack.modules.dashboard.dto.DashboardResponse;
 import com.paisatrack.modules.dashboard.dto.DashboardResponse.AccountBalance;
@@ -55,15 +57,18 @@ public class DashboardService {
     private final AccountService accounts;
     private final BudgetService budgets;
     private final IncomeSourceService incomeSources;
+    private final DebtService debts;
     private final UserPreferencesService preferences;
 
     DashboardService(TransactionTotalsService totals, TransactionQueryService transactions, AccountService accounts,
-                     BudgetService budgets, IncomeSourceService incomeSources, UserPreferencesService preferences) {
+                     BudgetService budgets, IncomeSourceService incomeSources, DebtService debts,
+                     UserPreferencesService preferences) {
         this.totals = totals;
         this.transactions = transactions;
         this.accounts = accounts;
         this.budgets = budgets;
         this.incomeSources = incomeSources;
+        this.debts = debts;
         this.preferences = preferences;
     }
 
@@ -98,7 +103,8 @@ public class DashboardService {
                 categorySpending(userId, currency, rangeFrom, rangeTo),
                 dailySpending(userId, currency, rangeFrom, rangeTo),
                 monthlyTrend(userId, currency, YearMonth.from(today)),
-                recent(userId, 10));
+                recent(userId, 10),
+                debtsOverview(userId, currency));
     }
 
     /** Spending by top-level category with each one's share (default: this month). */
@@ -119,6 +125,16 @@ public class DashboardService {
     }
 
     // ---- pieces ----
+
+    private DashboardResponse.DebtsOverview debtsOverview(UUID userId, String currency) {
+        DebtSummaryResponse.CurrencyTotals totals = debts.summary(userId).currencies().stream()
+                .filter(t -> t.currency().equals(currency)).findFirst().orElse(null);
+        var dueSoon = debts.reminders(userId, 14).stream().filter(d -> d.currency().equals(currency)).limit(5).toList();
+        return new DashboardResponse.DebtsOverview(
+                MoneyRules.scaled(totals == null ? BigDecimal.ZERO : totals.owedToYou(), currency),
+                MoneyRules.scaled(totals == null ? BigDecimal.ZERO : totals.youOwe(), currency),
+                totals == null ? 0 : totals.overdueCount(), dueSoon);
+    }
 
     private Period period(UUID userId, String currency, LocalDate from, LocalDate to) {
         return period(from, to, totals.totals(userId, currency, from, to), currency);

@@ -7,6 +7,7 @@ import { el, empty, fill, icon, input, segmented, skeleton, toast } from '../dom
 import { openAccountDialog, openBudgetDialog, openIncomeSourceDialog, openTransactionDialog, recordExpectedIncome } from '../forms.js';
 import { addDays, greeting, isoDate, longDate, money, plural, shortDate } from '../format.js';
 import { store } from '../store.js';
+import { debtRow, openDebtDetail } from './debts.js';
 
 const PRESETS = [
     { value: 'month', label: 'This month' },
@@ -102,8 +103,10 @@ function content(d, range, reload) {
         el('div', { class: 'col-4' }, card('Expected income', { sub: 'this month',
             action: smallButton('Source', () => openIncomeSourceDialog({ onSaved: reload })) }, expectedIncome(d, reload))),
         el('div', { class: 'col-4' }, card('Accounts', { action: smallButton('Account', () => openAccountDialog({ onSaved: reload })) }, accounts(d))),
-        el('div', { class: 'col-6' }, card('Income vs expense', { sub: 'last 6 months' }, trend(d))),
-        el('div', { class: 'col-6' }, card('Recent activity', {
+        el('div', { class: 'col-4' }, card('Lending & borrowing', {
+            action: el('a', { class: 'btn sm ghost', href: '#/debts' }, 'Open', icon('right')) }, debtsCard(d, reload))),
+        el('div', { class: 'col-8' }, card('Income vs expense', { sub: 'last 6 months' }, trend(d))),
+        el('div', { class: 'col-12' }, card('Recent activity', {
             action: el('a', { class: 'btn sm ghost', href: '#/transactions' }, 'View all', icon('right')) }, recent(d, reload))));
 
     const note = el('p', { class: 'faint', style: { marginTop: '16px', fontSize: '12.5px' } },
@@ -191,6 +194,18 @@ function trend(d) {
         el('div', { class: 'legend' },
             el('span', {}, el('i', { style: { background: 'var(--income)' } }), 'Income'),
             el('span', {}, el('i', { style: { background: 'var(--expense)' } }), 'Expense'))];
+}
+
+function debtsCard(d, reload) {
+    const x = d.debts;
+    return el('div', {},
+        el('div', { class: 'debt-stats' },
+            el('div', {}, el('span', { class: 'faint', text: 'Owed to you' }), el('b', { class: 'num pos', text: money(x.owedToYou, d.currency) })),
+            el('div', {}, el('span', { class: 'faint', text: 'You owe' }), el('b', { class: 'num neg', text: money(x.youOwe, d.currency) }))),
+        x.dueSoon.length
+            ? el('div', { class: 'rows' }, x.dueSoon.map((debt) => debtRow(debt, () => openDebtDetail(debt, reload))))
+            : el('p', { class: 'faint', text: x.overdueCount ? '' : 'Nothing due in the next two weeks.' }),
+        el('p', { class: 'faint', style: { fontSize: '12px', marginTop: '8px' }, text: 'Tracked separately, not part of net worth.' }));
 }
 
 function recent(d, reload) {
