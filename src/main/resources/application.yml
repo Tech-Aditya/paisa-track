@@ -1,0 +1,92 @@
+# Shared config. Overrides live in application-<profile>.yml; secrets come from env vars.
+spring:
+  application:
+    name: paisatrack
+  profiles:
+    default: local
+  threads:
+    virtual:
+      enabled: true
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  mvc:
+    problemdetails:
+      enabled: false
+    format:
+      date: iso
+      time: iso
+      date-time: iso
+
+server:
+  error:
+    include-message: never
+    include-stacktrace: never
+    include-exception: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+  default-produces-media-type: application/json
+
+# Console: "12:04:31.218  INFO [3f9a1c0d7e2b4a61] UserService : Login succeeded userId=..."
+# The prod profile switches to structured JSON instead.
+logging:
+  pattern:
+    console: "%clr(%d{HH:mm:ss.SSS}){faint} %clr(%5p) %clr([%X{requestId:-main}]){faint} %clr(%-22.22logger{0}){cyan} : %m%n%wEx"
+  level:
+    root: INFO
+    org.hibernate: WARN
+    com.zaxxer.hikari: WARN
+    org.springframework.data.repository.config: WARN
+    org.springframework.security: WARN
+    org.apache.catalina: WARN
+    org.apache.tomcat: WARN
+
+paisatrack:
+  security:
+    jwt:
+      issuer: paisatrack
+      audience: paisatrack-api
+      secret: ${JWT_SECRET:}
+      allow-ephemeral-secret: false
+      access-token-ttl: 15m
+      refresh-token-ttl: 30d
+    refresh-token-cleanup:
+      cron: "0 30 3 * * *"
+      retention: 7d
+    rate-limit:
+      enabled: true
+      auth:
+        max-requests: 10
+        window: 1m
+  idempotency:
+    retention: 7d
+    cleanup-cron: "0 45 3 * * *"
+  cors:
+    allowed-origins: []

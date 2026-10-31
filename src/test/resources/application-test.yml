@@ -1,0 +1,22 @@
+# Integration tests. The datasource is provided by PostgresTestDatabase.
+spring:
+  main:
+    banner-mode: off
+
+paisatrack:
+  security:
+    jwt:
+      allow-ephemeral-secret: true
+    rate-limit:
+      auth:
+        max-requests: 100000  # RateLimitIntegrationTest lowers this
+  cors:
+    allowed-origins:
+      - http://localhost:5173
+
+# Keep test output to warnings and failures.
+logging:
+  level:
+    root: WARN
+    com.paisatrack.support: INFO
+    org.testcontainers.dockerclient: OFF  # "no Docker" is expected; we fall back to embedded PostgreSQL

@@ -1,0 +1,17 @@
+# Local development (default profile). Database comes from compose.yaml.
+spring:
+  config:
+    import: optional:file:.env[.properties]  # same .env as docker compose
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/paisatrack}
+    username: ${DB_USERNAME:paisatrack}
+    password: ${DB_PASSWORD:paisatrack_local}
+
+paisatrack:
+  security:
+    jwt:
+      allow-ephemeral-secret: true  # random key if JWT_SECRET is unset; tokens reset on restart
+  cors:
+    allowed-origins:
+      - http://localhost:3000
+      - http://localhost:5173

@@ -1,0 +1,24 @@
+# Local development dependencies. Start with:  docker compose up -d
+# Values come from .env (copy .env.example); the defaults are for local use only.
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: paisatrack-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-paisatrack}
+      POSTGRES_USER: ${DB_USERNAME:-paisatrack}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-paisatrack_local}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      # PostgreSQL 18 images keep data under /var/lib/postgresql (versioned subdirectory).
+      - paisatrack-pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  paisatrack-pgdata:
