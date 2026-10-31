@@ -35,7 +35,7 @@ Prerequisites: JDK 25 and Docker (for the database).
    docker compose up -d
    ```
 
-3. Run the app. The `local` profile is the default.
+3. Run the app. The `dev` profile is the default.
 
    ```bash
    ./mvnw spring-boot:run
@@ -63,7 +63,7 @@ This starts the app on a throwaway embedded PostgreSQL. Data is lost when it sto
 
 On Windows, use `mvnw.cmd` the same way.
 
-The local profile also reads `.env`. If `JWT_SECRET` is empty there, a random
+The dev profile also reads `.env`. If `JWT_SECRET` is empty there, a random
 signing key is generated at startup, so tokens stop working after a restart.
 To keep tokens valid across restarts, set a key:
 
@@ -85,9 +85,11 @@ curl -s localhost:8080/api/v1/users/me -H "Authorization: Bearer <accessToken fr
 
 | Profile | Purpose |
 |---|---|
-| `local` (default) | Developer machine. Uses the compose database, DEBUG logging for `com.paisatrack`, CORS for `localhost:3000` and `localhost:5173`, and allows a random JWT key. |
+| `dev` (default) | Your own machine (`application-dev.yml`). Compose database (or the embedded one via `LocalDevApplication`), Swagger on, readable one-line console logs, CORS for `localhost:3000`/`5173`, random JWT key allowed, slow-request warning at 500 ms. |
+| `prod` | Production (`application-prod.yml`). Every secret from the environment and startup fails if one is missing. JSON (ECS) logs with service name, version and environment; optional rotating log file. Tuned connection pool, graceful shutdown, response compression, forwarded headers, Swagger off. |
 | `test` | Automated tests (`src/test/resources/application-test.yml`). The test harness provides the database. |
-| `prod` | Every secret comes from the environment, Swagger is off by default, logs are structured JSON (ECS), shutdown is graceful, and forwarded headers are honoured. |
+
+`application.yml` holds only what every environment shares.
 
 Environment variables:
 
@@ -99,6 +101,10 @@ Environment variables:
 | `CORS_ALLOWED_ORIGINS` | no | Comma-separated browser origins. Empty means no cross-origin access. |
 | `SWAGGER_ENABLED` | no | `true` exposes the API docs in prod (default `false`) |
 | `DB_POOL_MAX_SIZE`, `DB_POOL_MIN_IDLE` | no | Hikari pool sizing (defaults 10 and 2) |
+| `PORT` | no | HTTP port in prod (default 8080) |
+| `LOG_FILE` | no | Also write JSON logs to this rotating file (50 MB × 14) |
+| `APP_ENVIRONMENT` | no | `service.environment` in logs (default `production`) |
+| `SLOW_REQUEST_THRESHOLD` | no | Requests at least this slow log at WARN (default `2s`) |
 | `SPRING_PROFILES_ACTIVE` | prod | Set to `prod` |
 
 Other settings live under `paisatrack.*` in `application.yml`:
@@ -106,6 +112,13 @@ Other settings live under `paisatrack.*` in `application.yml`:
 - token lifetimes: 15 minutes for access tokens, 30 days for refresh tokens
 - auth rate limit: 10 requests per minute, per IP and endpoint
 - refresh-token cleanup: schedule and retention
+
+### Logging
+
+- Dev: `12:04:31.218  INFO [3f9a1c0d7e2b4a61] UserService : Login succeeded userId=…`. The bracket is the request id, also returned as `X-Request-Id`.
+- One access line per request: `GET /api/v1/dashboard 200 31ms`. Server errors and slow requests are logged at WARN; health checks and static files at DEBUG.
+- Prod: one JSON object per line. `requestId` and the signed-in `userId` are separate fields, so you can filter a single request or user.
+- Never logged: passwords, tokens, request bodies, query strings, or amounts tied to a person.
 
 ## API
 
@@ -199,22 +212,47 @@ works too.
 
 ```
 src/main/java/com/paisatrack/
-  auth/         register/login/refresh/logout, refresh-token store
-  user/         users, profile, password, preferences
-  security/     filter chain, JWT, CurrentUser, rate limiting
-  account/      accounts, derived balances, default account
-  category/     categories, subcategories, default seeding
-  transaction/  expenses, income, transfers, void/restore, summaries
-  audit/        field-level audit trail
-  idempotency/  Idempotency-Key replay protection
-  income/       income sources, monthly expectations, received vs expected
-  budget/       budgets, utilization, alert thresholds
-  dashboard/    home-screen aggregates
-  common/       response envelope, paging, money rules, auditable entity base
-  exception/    error codes and the global handler
-  validation/   currency, timezone, password constraints
-  logging/      correlation id and access log
-  config/       clock and auditing, OpenAPI, CORS
-src/main/resources/static/app/     basic web dashboard (HTML/CSS/JS, no build step)
-src/main/resources/db/migration/   Flyway migrations (V1, V2, …)
+  PaisaTrackApplication.java
+  platform/              cross-cutting, no business logic
+    api/                 response envelope, paging
+    audit/               field-level audit trail
+    config/              clock, OpenAPI, CORS, web app routes
+    exception/           error codes, global handler
+    idempotency/         Idempotency-Key replay protection
+    logging/             request id, access log, startup line
+    money/               currency precision rules
+    persistence/         auditable entity base
+    security/            filter chain, JWT, CurrentUser, rate limiting
+    validation/          currency, timezone, password constraints
+  modules/               business features
+    <module>/            entities, repositories, services (internals package-private)
+    <module>/dto/        request and response records
+    <module>/web/        REST controllers
+    auth, user, account, category, transaction, income, budget, dashboard
+src/main/resources/
+  application.yml               shared settings
+  application-dev.yml           local development (default)
+  application-prod.yml          production
+  db/migration/                 Flyway migrations (V1 … V8)
+  static/app/                   web app: index.html, css/, js/ (ES modules, no build step)
+src/test/java/com/paisatrack/   same layout as main, plus support/ and LocalDevApplication
 ```
+
+### Web app
+
+Open <http://localhost:8080/>. It is plain HTML, CSS and ES modules served by the
+backend, with no build step and a strict Content-Security-Policy. All user data is
+inserted as text.
+
+- **Overview:** spending today, this week and this month; net cash flow and
+  savings rate; daily spending and category donut charts; budgets with alerts;
+  expected income, with a one-click **Record** for anything due; accounts and
+  net worth; a 6-month trend; recent activity. Date presets: this month, last
+  month, 30 days, custom.
+- **Transactions:** search, filter by type, category, account and dates; grouped
+  by day with daily totals; delete (void) and restore; paging.
+- **Add:** one dialog for expense, income or transfer, plus dialogs for budgets,
+  accounts and income sources. Errors show next to the field. A double submit
+  never creates two entries.
+- Light and dark themes, a sidebar on desktop and a bottom tab bar on phones.
+  Press `n` anywhere to add a transaction.

@@ -15,6 +15,7 @@ public final class LocalDevApplication {
     }
 
     public static void main(String[] args) {
+        System.setProperty("logging.level.io.zonky", "WARN"); // embedded PostgreSQL is chatty
         PostgresTestDatabase.ConnectionInfo db = PostgresTestDatabase.get();
         System.setProperty("spring.datasource.url", db.jdbcUrl());
         System.setProperty("spring.datasource.username", db.username());

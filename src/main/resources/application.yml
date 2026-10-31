@@ -1,26 +1,32 @@
-# Shared config. Overrides live in application-<profile>.yml; secrets come from env vars.
+# Settings shared by every environment. Environment-specific values live in
+# application-dev.yml (default, local runs) and application-prod.yml.
 spring:
   application:
     name: paisatrack
   profiles:
-    default: local
+    default: dev
   threads:
     virtual:
       enabled: true
   jpa:
     open-in-view: false
     hibernate:
-      ddl-auto: validate
+      ddl-auto: validate          # Flyway owns the schema
     properties:
       hibernate:
         jdbc:
           time_zone: UTC
   flyway:
-    enabled: true
     locations: classpath:db/migration
+    clean-disabled: true
+  web:
+    resources:
+      cache:
+        cachecontrol:
+          no-cache: true          # browsers revalidate the web app (cheap 304s) so a deploy is never stale
   mvc:
     problemdetails:
-      enabled: false
+      enabled: false              # errors use our ApiResponse envelope
     format:
       date: iso
       time: iso
@@ -45,17 +51,14 @@ management:
 
 springdoc:
   api-docs:
-    enabled: true
     path: /v3/api-docs
   swagger-ui:
-    enabled: true
     path: /swagger-ui.html
     operations-sorter: method
     tags-sorter: alpha
   default-produces-media-type: application/json
 
-# Console: "12:04:31.218  INFO [3f9a1c0d7e2b4a61] UserService : Login succeeded userId=..."
-# The prod profile switches to structured JSON instead.
+# Console lines: "12:04:31.218  INFO [3f9a1c0d7e2b4a61] UserService : Login succeeded userId=..."
 logging:
   pattern:
     console: "%clr(%d{HH:mm:ss.SSS}){faint} %clr(%5p) %clr([%X{requestId:-main}]){faint} %clr(%-22.22logger{0}){cyan} : %m%n%wEx"
@@ -71,6 +74,8 @@ logging:
     org.apache.tomcat: WARN
 
 paisatrack:
+  logging:
+    slow-request-threshold: 1s    # requests slower than this are logged at WARN
   security:
     jwt:
       issuer: paisatrack

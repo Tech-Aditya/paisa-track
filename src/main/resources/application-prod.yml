@@ -1,4 +1,5 @@
-# Production. All secrets come from the environment; startup fails if one is missing.
+# Production profile. Activate with SPRING_PROFILES_ACTIVE=prod.
+# Every secret and endpoint comes from the environment; startup fails if a required one is missing.
 spring:
   main:
     banner-mode: off
@@ -7,14 +8,30 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     hikari:
+      pool-name: paisatrack-db
       maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
       minimum-idle: ${DB_POOL_MIN_IDLE:2}
-      connection-timeout: 10s
-      max-lifetime: 30m
+      # Hikari timings are in milliseconds.
+      connection-timeout: 10000        # 10 s
+      idle-timeout: 300000             # 5 min
+      max-lifetime: 1800000            # 30 min
+      leak-detection-threshold: 30000  # 30 s
+  flyway:
+    validate-on-migrate: true
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
 
 server:
-  forward-headers-strategy: native
+  port: ${PORT:8080}
   shutdown: graceful
+  forward-headers-strategy: native     # trust X-Forwarded-* from the load balancer
+  compression:
+    enabled: true
+    mime-types: application/json,text/html,text/css,application/javascript
+    min-response-size: 1KB
+  tomcat:
+    connection-timeout: 10s
+    max-swallow-size: 2MB
 
 springdoc:
   api-docs:
@@ -22,17 +39,46 @@ springdoc:
   swagger-ui:
     enabled: ${SWAGGER_ENABLED:false}
 
+management:
+  endpoint:
+    health:
+      show-details: never
+  info:
+    env:
+      enabled: false
+
 paisatrack:
+  logging:
+    slow-request-threshold: ${SLOW_REQUEST_THRESHOLD:2s}
   security:
     jwt:
-      secret: ${JWT_SECRET}
+      secret: ${JWT_SECRET}                   # required: base64, at least 32 bytes
       allow-ephemeral-secret: false
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:}
 
+# JSON (ECS) logs on stdout for the log shipper. requestId and userId come from the MDC.
+# Set LOG_FILE to also write a rotating file.
 logging:
   structured:
     format:
       console: ecs
+      file: ecs
+    ecs:
+      service:
+        name: paisatrack
+        version: "@project.version@"
+        environment: ${APP_ENVIRONMENT:production}
+  file:
+    name: ${LOG_FILE:}
+  logback:
+    rollingpolicy:
+      max-file-size: 50MB
+      max-history: 14
+      total-size-cap: 1GB
   level:
-    root: INFO
+    root: WARN
+    com.paisatrack: INFO
+    access: INFO
+    org.springframework.boot.tomcat: INFO
+    org.flywaydb: INFO

@@ -6,10 +6,17 @@ salary, budgets and dashboard) are done. This document records the decisions lat
 ## Shape
 
 A modular monolith: one Spring Boot application with one PostgreSQL database.
-Modules are Java packages under `com.paisatrack`. Each module owns its
-controllers, services, repositories, entities and DTOs. Entities and
-repositories stay package-private wherever possible, so other modules go
-through the module's public service.
+Code is split in two:
+
+- `com.paisatrack.platform`: cross-cutting technical concerns with no business
+  logic (API envelope, errors, security, logging, validation, money rules,
+  persistence base, audit, idempotency).
+- `com.paisatrack.modules`: business features. A module keeps entities,
+  repositories and services in its root package (internals stay package-private),
+  REST controllers in `web` and request/response records in `dto`. Other modules
+  use only its public services, `*Ref` records and provider interfaces.
+
+Modules depend on platform, never the reverse.
 
 | Package | Responsibility |
 |---|---|
@@ -24,11 +31,13 @@ through the module's public service.
 | `dashboard` | Read-only home-screen aggregates |
 | `audit` | Append-only field-level audit trail (`audit_events`) |
 | `idempotency` | `Idempotency-Key` replay protection for creates |
-| `common` | Response envelope, paging, money rules, auditable entity base |
+| `api`, `money`, `persistence` | Response envelope and paging; currency precision rules; auditable entity base |
 | `exception` | `ErrorCode`, `ApiException`, global exception handler |
 | `validation` | Reusable constraints: currency code, IANA timezone, password policy, null-or-not-blank |
-| `logging` | Correlation id filter and the per-request access log |
-| `config` | Clock and auditing, OpenAPI, CORS properties |
+| `logging` | Request id, access log, slow-request warnings, startup summary |
+| `config` | Clock and auditing, OpenAPI, CORS, web app routes |
+
+The first nine rows are `modules.*`; the rest are `platform.*`.
 
 Dependencies point one way: `auth → user`, `transaction → income, account, category, user`,
 `budget → transaction`, `dashboard → everything it summarises`, all of them `→ (common, exception, validation, audit, idempotency)`.
@@ -176,18 +185,27 @@ Decisions confirmed with the product owner:
 - **Dashboard** figures are in the user's default currency and come from the same
   SQL totals as the transaction list and daily summary. Entries in other
   currencies are counted, not summed.
-- **Web app.** A static page at `/app` (no build step, strict CSP, all user data
-  inserted as text). Tokens are kept in `sessionStorage`; refresh calls are
-  serialised. Phase 9 replaces it with the full frontend.
+- **Web app.** Served from `/app` as ES modules (`js/api`, `dom`, `charts`, `forms`,
+  `views/*`) with no build step and a strict CSP. All user data is inserted as text.
+  Tokens live in `sessionStorage` and refresh calls are serialised. Static files are
+  sent with `Cache-Control: no-cache` (revalidated, 304 when unchanged), so a deploy
+  is never stale. Phase 9 can grow it, or replace it with a framework app.
 
 ## Observability
 
 - Every request gets an `X-Request-Id`. A safe id sent by the client is
   reused; otherwise a new one is generated. The id goes into the MDC (so it
   appears in log lines) and into the response header and envelope.
-- One access-log line per request: method, path, status and duration. Query
-  strings, headers and bodies are never logged.
-- The `prod` profile writes structured ECS JSON logs.
+- One access-log line per request: method, path, status and duration. Server
+  errors and requests over `paisatrack.logging.slow-request-threshold` log at WARN;
+  health checks and static files at DEBUG. Query strings, headers and bodies are
+  never logged.
+- The authenticated user id goes into the MDC as `userId`. The `prod` profile
+  writes ECS JSON in which `requestId` and `userId` are fields; the dev console
+  pattern shows only the request id, to keep lines short.
+- A single `PaisaTrack ready` line at startup gives the profile, port, database host
+  (no credentials) and whether API docs are on.
+- Scheduled jobs log their outcome and duration (`Job refresh-token-cleanup done`).
 
 ## Known trade-offs
 

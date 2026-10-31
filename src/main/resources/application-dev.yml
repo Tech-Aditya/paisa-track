@@ -1,0 +1,33 @@
+# Development profile (the default). For running on your own machine.
+#   With Docker:    docker compose up -d   then   mvnw spring-boot:run
+#   Without Docker: mvnw spring-boot:test-run -Dspring-boot.run.main-class=com.paisatrack.LocalDevApplication
+spring:
+  config:
+    import: optional:file:.env[.properties]   # same .env file docker compose reads
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/paisatrack}
+    username: ${DB_USERNAME:paisatrack}
+    password: ${DB_PASSWORD:paisatrack_local}
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+paisatrack:
+  logging:
+    slow-request-threshold: 500ms
+  security:
+    jwt:
+      allow-ephemeral-secret: true            # random key if JWT_SECRET is unset; tokens reset on restart
+  cors:
+    allowed-origins:
+      - http://localhost:3000
+      - http://localhost:5173
+
+logging:
+  level:
+    com.paisatrack: INFO
+    # org.hibernate.SQL: DEBUG                # uncomment to see SQL
+    # org.hibernate.orm.jdbc.bind: TRACE      # ...and bound parameters (contains user data)
