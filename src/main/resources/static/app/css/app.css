@@ -177,7 +177,7 @@ kbd { margin-left: auto; padding: 1px 6px; border-radius: 5px; font: 600 11px/16
     position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 6px;
     padding: 20px 14px; background: var(--bg-elev); border-right: 1px solid var(--border);
 }
-.sidebar { overflow-y: auto; }
+.sidebar { overflow-y: auto; overflow-x: hidden; }
 .sidebar-top { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 14px 8px; }
 .quick-add { margin: 0 2px 10px; height: 40px; }
 .nav-group { display: grid; gap: 2px; margin-bottom: 10px; }
@@ -366,6 +366,40 @@ dialog.sheet[open] { animation: rise .18s ease-out; }
 }
 .toast.error { background: var(--expense); color: #fff; }
 
+/* ---------- Reports ---------- */
+
+.period-nav { display: flex; align-items: center; gap: 8px; margin: -4px 0 16px; }
+.period-nav:empty { display: none; }
+.period-label { display: grid; gap: 1px; min-width: 0; padding: 0 4px; }
+.period-label b { font-size: 17px; letter-spacing: -.01em; }
+.period-label .faint { font-size: 12.5px; }
+.report-filters {
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) auto; gap: 10px; align-items: end;
+    padding: 14px; margin-bottom: 14px; border-radius: var(--radius); background: var(--bg-elev); border: 1px solid var(--border);
+}
+.delta { display: inline-flex; align-items: center; gap: 2px; height: 22px; padding: 0 7px; border-radius: 999px; font-size: 12px; font-weight: 650; background: var(--bg-sunken); color: var(--text-2); }
+.delta .icon { width: 12px; height: 12px; stroke-width: 2.4; }
+.delta.good { background: var(--income-soft); color: var(--income); }
+.delta.bad { background: var(--expense-soft); color: var(--expense); }
+.insights { display: grid; gap: 8px; }
+.insight { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: var(--bg-sunken); }
+.insight p { padding-top: 5px; }
+.insight-icon { width: 30px; height: 30px; flex: none; border-radius: 9px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+.insight.warning .insight-icon { background: var(--warn-soft); color: var(--warn); }
+.insight.positive .insight-icon { background: var(--income-soft); color: var(--income); }
+.moves { display: grid; }
+.move { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 8px 0; border-bottom: 1px dashed var(--border); }
+.move:last-child { border-bottom: 0; }
+.move > span { display: grid; }
+.move small { font-size: 11.5px; }
+.salary { display: grid; gap: 6px; margin-top: 12px; padding: 12px; border-radius: 12px; background: var(--bg-sunken); }
+.cat-row { align-items: stretch; }
+.cat-top, .cat-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.cat-foot { margin-top: 6px; font-size: 12px; color: var(--text-3); }
+.report-table td small { display: block; font-size: 11.5px; }
+.report-table td.num, .report-table th:not(:first-child) { text-align: right; }
+.report-note { margin-top: 16px; font-size: 12.5px; line-height: 1.6; }
+
 /* ---------- Notifications ---------- */
 
 .bell { position: relative; }
@@ -433,6 +467,7 @@ dialog.drawer::backdrop { background: rgba(8, 12, 18, .35); }
 
 @media (max-width: 1100px) {
     .kpis, .kpis.kpis-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .report-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .col-8, .col-6, .col-4 { grid-column: span 12; }
 }
 
@@ -449,6 +484,8 @@ dialog.drawer::backdrop { background: rgba(8, 12, 18, .35); }
     }
     .main { padding: 16px 16px 120px; }
     .page-head { margin-bottom: 14px; }
+    .report-filters { grid-template-columns: 1fr 1fr; }
+    .report-filters .btn { grid-column: 1 / -1; }
     .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .filters .search { grid-column: 1 / -1; }
     .filters .field { flex: none; }

@@ -157,7 +157,7 @@ export async function openBudgetDialog({ onSaved }) {
     });
 }
 
-const ACCOUNT_TYPES = ['SAVINGS', 'CURRENT', 'CREDIT_CARD', 'CASH', 'WALLET', 'OTHER'];
+const ACCOUNT_TYPES = ['SAVINGS', 'CURRENT', 'CREDIT_CARD', 'CASH', 'WALLET', 'INVESTMENT', 'OTHER'];
 
 export async function openAccountDialog({ onSaved }) {
     const me = await store.me();

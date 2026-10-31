@@ -87,6 +87,7 @@ const ICONS = {
     play: 'M7 4l13 8-13 8z',
     stop: 'M6 6h12v12H6z',
     skip: 'M5 4l10 8-10 8zM19 5v14',
+    chart: 'M3 3v18h18M8 17V11M13 17V7M18 17v-4',
 };
 
 export function icon(name, extraClass = '') {

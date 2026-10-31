@@ -178,7 +178,7 @@ function expectedIncome(d, reload) {
     }));
 }
 
-const ACCOUNT_ICON = { CASH: 'cash', SAVINGS: 'bank', CURRENT: 'bank', CREDIT_CARD: 'card', WALLET: 'wallet', OTHER: 'wallet' };
+const ACCOUNT_ICON = { CASH: 'cash', SAVINGS: 'bank', CURRENT: 'bank', CREDIT_CARD: 'card', WALLET: 'wallet', INVESTMENT: 'trend', OTHER: 'wallet' };
 
 function accounts(d) {
     const a = d.accounts;

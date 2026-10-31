@@ -11,12 +11,14 @@ import { renderDebts } from './views/debts.js';
 import { renderLoans } from './views/loans.js';
 import { renderOverview } from './views/overview.js';
 import { renderRecurring } from './views/recurring.js';
+import { renderReports } from './views/reports.js';
 import { renderSettings } from './views/settings.js';
 import { renderTransactions } from './views/transactions.js';
 
 const ROUTES = {
     '#/overview': { label: 'Overview', short: 'Home', iconName: 'home', group: 'Money', render: renderOverview },
     '#/transactions': { label: 'Transactions', short: 'Activity', iconName: 'list', group: 'Money', render: renderTransactions },
+    '#/reports': { label: 'Reports', short: 'Reports', iconName: 'chart', group: 'Money', render: renderReports },
     '#/recurring': { label: 'Bills & recurring', short: 'Bills', iconName: 'repeat', group: 'Plan', render: renderRecurring },
     '#/loans': { label: 'Loans & EMIs', short: 'Loans', iconName: 'bank', group: 'Plan', render: renderLoans },
     '#/debts': { label: 'Lending', short: 'Lending', iconName: 'people', group: 'Plan', render: renderDebts },
@@ -26,7 +28,7 @@ const ROUTES = {
     },
 };
 /** Phone tab bar; everything else lives under "More". */
-const TABS = ['#/overview', '#/transactions', '#/recurring', '#/loans'];
+const TABS = ['#/overview', '#/transactions', '#/reports', '#/recurring'];
 
 const root = document.getElementById('root');
 let main;

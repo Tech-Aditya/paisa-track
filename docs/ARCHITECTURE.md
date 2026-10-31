@@ -32,6 +32,7 @@ Modules depend on platform, never the reverse.
 | `loan` | Formal loans, EMI schedules (amortization), EMI payments, prepayments, upcoming/missed EMIs |
 | `recurring` | Recurring rules (rent, bills, subscriptions, SIPs), expected occurrences, confirm/skip, generation job |
 | `notification` | In-app reminders from every module, read state, per-type preferences, reminder job |
+| `report` | Daily/weekly/monthly/yearly/custom reports, like-for-like comparisons, insights |
 | `dashboard` | Read-only home-screen aggregates |
 
 | Platform (`platform.*`) | Responsibility |
@@ -48,6 +49,7 @@ Modules depend on platform, never the reverse.
 Dependencies point one way: `auth → user`, `transaction → income, account, category, user`,
 `budget → transaction`, `debt → people, user`, `loan → transaction, account, category`,
 `recurring → transaction, account, category`, `notification → loan, recurring, debt, budget, income, user`,
+`report → account, budget, category, debt, loan, user` (plus read-only SQL over the ledger tables),
 `dashboard → everything it summarises`. Every module may use `platform`.
 The `user` module never calls `auth`. When a password changes, `user`
 publishes a `PasswordChangedEvent`. `auth` handles it in the same database
@@ -300,6 +302,39 @@ How it works:
   their own timezone and own transaction; a failure is logged and the rest continue. The web app
   also triggers a check on start.
 
+## Reports and analytics (Phase 7)
+
+Decisions confirmed with the product owner:
+
+- **Investments** are transfers into an account of type `INVESTMENT` (withdrawals are transfers out of
+  one). They are never spending; reports show invested, withdrawn and net invested.
+- **Loan interest** stays in expenses, so report totals match the dashboard and budgets, and is shown
+  as its own line; "consumption" is spending without interest.
+- **Like-for-like comparison.** A period still running is compared with the same point of the
+  previous period (1-15 Nov vs 1-15 Oct, the clamped day for shorter months; this week so far vs the
+  same days last week; year to date vs the same date last year). Finished periods compare in full;
+  custom ranges compare with the same number of days just before; a day with the day before.
+- **Salary used** = spending in the period ÷ income from SALARY sources credited in it; not shown
+  without salary.
+
+How it works:
+
+- **One source of truth.** The `report` module aggregates the ledger directly in SQL (a read model,
+  read-only): ACTIVE transactions in one currency with the same date rules as the transaction list,
+  daily summary and dashboard, so totals reconcile with the entries behind them (tested by summing the
+  transaction list). Each section is one aggregate query; nothing loads transaction histories into
+  memory. Series are per day up to 62 days, else per month.
+- **Kept apart:** income; spending (of which interest); transfers (of which card bill payments and
+  investments); loan principal repaid and loan money received; lending and borrowing started and
+  repaid. Only income and spending feed net cash flow and the savings rate.
+- **Days and weeks** follow the user's timezone and week-start day; the report's `asOf` is "today"
+  for them, and a running period is measured up to it.
+- **Insights** are rules over the report's own numbers (spending change ≥ 10 %, the top category, a
+  category up ≥ 25 % that is ≥ 10 % of spending, savings-rate shifts ≥ 5 points, budgets over or
+  near their limit, interest share, EMIs due in 30 days, money invested). Nothing is estimated.
+- Sections that depend on other modules (budgets, salary, lending, loans) are left out of filtered
+  custom reports, where they would not match the filter.
+
 ## Observability
 
 - Every request gets an `X-Request-Id`. A safe id sent by the client is
@@ -347,6 +382,10 @@ How it works:
   and void.
 - **Assets bought with a loan aren't tracked** (no house or car value yet), so a home loan
   without a disbursement account makes net worth negative.
+- **Reports are single-currency.** Consolidated reports across currencies need exchange rates
+  (Phase 8). Exports (PDF, Excel, CSV) come in Phase 10.
+- **Account balances in reports are current balances**, next to the period's money in and out;
+  balance-as-of-a-date is not computed.
 - **Reminders are in-app only.** Email/push delivery can hang off the notifications table later.
 - **The notification job visits every active user hourly.** Fine for thousands of users; beyond that,
   shard by user or keep a "next reminder at" per user.

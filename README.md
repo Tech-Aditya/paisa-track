@@ -3,10 +3,10 @@
 A personal finance, daily expense and money management API. It is built as a
 modular Spring Boot monolith on PostgreSQL.
 
-> **Status:** Phases 1-6 are complete: foundation and security; accounts,
+> **Status:** Phases 1-7 are complete: foundation and security; accounts,
 > categories and transactions; salary, budgets and the dashboard; lending and
-> borrowing; loans and EMIs; recurring transactions and notifications. Reports
-> and analytics come next, in Phase 7.
+> borrowing; loans and EMIs; recurring transactions and notifications; reports
+> and analytics. Multi-currency support comes next, in Phase 8.
 > Design decisions are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Tech stack
@@ -264,6 +264,21 @@ and EMIs are tracked by income sources and loans, not here.
 | POST | `/recurring-occurrences/{id}/confirm` | Record the actual expense, income or transfer (amount, date, account optional) |
 | POST | `/recurring-occurrences/{id}/skip`, `/reopen` | Skip it; undo a confirm (its transaction is voided) or a skip |
 
+**Reports** (all bearer). Built from recorded transactions only, in one currency (`currency=`, default your
+preferred one). Each report keeps income, spending (of which loan interest), transfers (card bills, investments),
+loan principal, lending and borrowing apart, compares with the previous period like-for-like (a running month is
+compared with the same days of last month), and adds fact-based insights.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/reports/daily?date=` | One day vs the day before |
+| GET | `/reports/weekly?date=` | The week containing the date, from your week-start day |
+| GET | `/reports/monthly?month=YYYY-MM` | Month: categories, accounts, budgets, salary used, EMIs and interest, lending, investments |
+| GET | `/reports/yearly?year=` | Year, month by month, with the highest and lowest month |
+| GET | `/reports/custom?from=&to=&accountId=&categoryId=&type=` | Any range up to two years, optionally filtered |
+
+Account type `INVESTMENT` (mutual funds, stocks, PPF, FDs): transfers into it are investments, never spending.
+
 **Notifications** (all bearer). In-app reminders for EMIs, bills, subscriptions, recurring items, lending, borrowing,
 budget thresholds and expected salary. Checked hourly in each user's timezone; one notification per item and stage.
 
@@ -318,12 +333,12 @@ src/main/java/com/paisatrack/
     <module>/dto/        request and response records
     <module>/web/        REST controllers
     auth, user, account, category, transaction, income, budget, people, debt, loan, recurring,
-                         notification, dashboard
+                         notification, report, dashboard
 src/main/resources/
   application.yml               shared settings
   application-dev.yml           local development (default)
   application-prod.yml          production
-  db/migration/                 Flyway migrations (V1 … V11)
+  db/migration/                 Flyway migrations (V1 … V12)
   logback-spring.xml            logging per profile
   banner.txt                    startup banner
   static/app/                   web app: index.html, css/, js/ (ES modules, no build step)
@@ -343,6 +358,12 @@ inserted as text.
   recent activity. Date presets: this month, last month, 30 days, custom.
 - **Transactions:** search, filter by type, category, account and dates; grouped
   by day with daily totals; click a row to edit it; delete (void) and restore; paging.
+- **Reports:** day, week, month, year or custom range (with account, category and
+  type filters); previous/next period; income, spending, net cash flow and daily
+  average with change vs the previous period; insights; spending chart; categories
+  with change; where money moved (spending, interest, transfers, card bills,
+  investments, loan principal, lending); accounts in/out; budgets; salary used;
+  largest expenses.
 - **Bills & recurring:** what is due or overdue with **Paid / Received** (actual
   amount, date and account) and **Skip**; each rule opens its dates, edit, pause,
   resume, stop, delete and undo.
@@ -358,6 +379,6 @@ inserted as text.
   accounts and income sources. Errors show next to the field. A double submit
   never creates two entries.
 - Light and dark themes. Desktop: grouped sidebar with quick add. Phones: bottom
-  tab bar (Home, Activity, Bills, Loans, More), bottom-sheet dialogs with the
+  tab bar (Home, Activity, Reports, Bills, More), bottom-sheet dialogs with the
   save button always in view, 44 px touch targets. Amounts accept `1,00,000`.
   Press `n` anywhere to add a transaction.

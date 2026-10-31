@@ -1,14 +1,12 @@
 package com.paisatrack.modules.notification;
 
 import java.math.BigDecimal;
-import java.text.NumberFormat;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.Currency;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -28,6 +26,7 @@ import com.paisatrack.modules.loan.dto.LoanSummaryResponse;
 import com.paisatrack.modules.recurring.RecurringService;
 import com.paisatrack.modules.recurring.RecurringType;
 import com.paisatrack.modules.recurring.dto.OccurrenceResponse;
+import com.paisatrack.platform.money.MoneyFormat;
 
 /**
  * Builds the reminders a user should have today from the modules that own the facts: EMIs,
@@ -42,7 +41,6 @@ class ReminderCollector {
     }
 
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH);
-    private static final Locale INDIA = Locale.forLanguageTag("en-IN");
 
     private final LoanService loans;
     private final RecurringService recurring;
@@ -215,15 +213,6 @@ class ReminderCollector {
     }
 
     private static String money(BigDecimal amount, String currency) {
-        NumberFormat format = NumberFormat.getCurrencyInstance(INDIA);
-        try {
-            Currency c = Currency.getInstance(currency);
-            format.setCurrency(c);
-            format.setMinimumFractionDigits(c.getDefaultFractionDigits());
-            format.setMaximumFractionDigits(c.getDefaultFractionDigits());
-        } catch (IllegalArgumentException e) {
-            return amount.toPlainString() + " " + currency;
-        }
-        return format.format(amount);
+        return MoneyFormat.format(amount, currency);
     }
 }
