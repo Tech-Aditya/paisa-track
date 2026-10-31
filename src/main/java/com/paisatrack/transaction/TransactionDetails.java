@@ -17,5 +17,7 @@ record TransactionDetails(
         String description,
         String counterparty,
         PaymentMethod paymentMethod,
-        String notes) {
+        String notes,
+        UUID incomeSourceId,
+        LocalDate incomePeriod) {
 }

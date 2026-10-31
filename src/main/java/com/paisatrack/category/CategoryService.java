@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -35,11 +36,11 @@ public class CategoryService {
             Comparator.comparingInt(Category::getSortOrder).thenComparing(Category::getName, String.CASE_INSENSITIVE_ORDER);
 
     private final CategoryRepository repository;
-    private final CategoryUsageProvider usage;
+    private final List<CategoryUsageProvider> usages;
 
-    CategoryService(CategoryRepository repository, CategoryUsageProvider usage) {
+    CategoryService(CategoryRepository repository, List<CategoryUsageProvider> usages) {
         this.repository = repository;
-        this.usage = usage;
+        this.usages = usages;
     }
 
     /** Top-level categories with their subcategories, optionally filtered by type. */
@@ -142,8 +143,9 @@ public class CategoryService {
         if (repository.existsByParentId(categoryId)) {
             throw new ApiException(ErrorCode.CATEGORY_IN_USE, "Delete its subcategories first, or deactivate it instead");
         }
-        if (usage.isUsed(userId, categoryId)) {
-            throw new ApiException(ErrorCode.CATEGORY_IN_USE, "This category has transactions. Deactivate it instead");
+        if (usages.stream().anyMatch(u -> u.isUsed(userId, categoryId))) {
+            throw new ApiException(ErrorCode.CATEGORY_IN_USE,
+                    "This category is used by transactions, budgets or income sources. Deactivate it instead");
         }
         repository.delete(category);
         log.info("Category deleted categoryId={}", categoryId);
@@ -165,6 +167,14 @@ public class CategoryService {
             throw new ApiException(ErrorCode.BUSINESS_RULE_VIOLATION, "Category '" + category.getName() + "' is deactivated");
         }
         return refs(userId, List.of(categoryId)).get(categoryId);
+    }
+
+    /** A seeded default by its stable code, if the user still has it and it is active. */
+    @Transactional(readOnly = true)
+    public Optional<CategoryRef> findActiveBySystemCode(UUID userId, String systemCode) {
+        return repository.findByUserIdAndSystemCode(userId, systemCode)
+                .filter(Category::isActive)
+                .map(c -> refs(userId, List.of(c.getId())).get(c.getId()));
     }
 
     /** The category plus its subcategories, for "filter by category" queries. */

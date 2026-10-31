@@ -21,7 +21,7 @@ import com.paisatrack.config.CorsProperties;
 import com.paisatrack.logging.RequestCorrelation;
 
 /**
- * Stateless bearer-token security. Public: auth endpoints, API docs, health. Everything else needs
+ * Stateless bearer-token security. Public: auth endpoints, the static /app UI, API docs, health. Everything else needs
  * an access token. CSRF is off because auth uses no cookies.
  */
 @Configuration(proxyBeanMethods = false)
@@ -51,6 +51,7 @@ class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, PUBLIC_AUTH_ENDPOINTS).permitAll()
                         .requestMatchers("/v3/api-docs", "/v3/api-docs/**", "/swagger-ui.html", "/swagger-ui/**").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
+                        .requestMatchers("/", "/app", "/app/**", "/favicon.ico").permitAll()
                         .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2

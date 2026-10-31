@@ -20,6 +20,7 @@ public record TransactionFilter(
         @Schema(description = "Matches either side of a transfer") UUID accountId,
         @Schema(description = "A top-level category also matches its subcategories") UUID categoryId,
         PaymentMethod paymentMethod,
+        @Schema(description = "Income linked to this income source") UUID incomeSourceId,
         @Schema(description = "Searches description and merchant/payer") @Size(max = 100) String q,
         BigDecimal minAmount,
         BigDecimal maxAmount,
@@ -34,7 +35,7 @@ public record TransactionFilter(
     public enum SortDirection { ASC, DESC }
 
     public TransactionFilter withType(TransactionType forcedType) {
-        return new TransactionFilter(forcedType, from, to, accountId, categoryId, paymentMethod, q,
+        return new TransactionFilter(forcedType, from, to, accountId, categoryId, paymentMethod, incomeSourceId, q,
                 minAmount, maxAmount, includeVoided, page, size, sortBy, direction);
     }
 }

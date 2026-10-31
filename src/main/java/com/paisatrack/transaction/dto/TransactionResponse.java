@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.YearMonth;
 import java.util.UUID;
 
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -27,6 +28,8 @@ public record TransactionResponse(
         @Schema(description = "Merchant for expenses, payer for income") String counterparty,
         PaymentMethod paymentMethod,
         String notes,
+        @Schema(description = "Income only: the source this receipt settles") SourceInfo incomeSource,
+        @Schema(description = "Income only: pay period settled", type = "string", example = "2026-10") YearMonth incomePeriod,
         Instant voidedAt,
         String voidReason,
         Instant createdAt,
@@ -36,5 +39,8 @@ public record TransactionResponse(
     }
 
     public record CategoryInfo(UUID id, String name, UUID parentId, String parentName) {
+    }
+
+    public record SourceInfo(UUID id, String name) {
     }
 }

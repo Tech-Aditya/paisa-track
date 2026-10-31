@@ -64,6 +64,8 @@ logging:
     org.hibernate: WARN
     com.zaxxer.hikari: WARN
     org.springframework.data.repository.config: WARN
+    org.springframework.data.jpa: WARN
+    org.springframework.orm.jpa: WARN
     org.springframework.security: WARN
     org.apache.catalina: WARN
     org.apache.tomcat: WARN

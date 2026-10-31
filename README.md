@@ -3,8 +3,9 @@
 A personal finance, daily expense and money management API. It is built as a
 modular Spring Boot monolith on PostgreSQL.
 
-> **Status:** Phases 1 (foundation and security) and 2 (accounts, categories,
-> transactions) are complete. Salary, budgets and the dashboard come next, in Phase 3.
+> **Status:** Phases 1-3 are complete: foundation and security; accounts,
+> categories and transactions; salary, budgets and the dashboard. Lending,
+> borrowing and repayments come next, in Phase 4.
 > Design decisions are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Tech stack
@@ -44,12 +45,23 @@ Prerequisites: JDK 25 and Docker (for the database).
 
 Once it starts:
 
+- Web app (dashboard): <http://localhost:8080/>
 - API: <http://localhost:8080/api/v1>
 - Swagger UI: <http://localhost:8080/swagger-ui.html>
 - OpenAPI JSON: <http://localhost:8080/v3/api-docs>
 - Health: <http://localhost:8080/actuator/health>
 
 Flyway applies the migrations automatically on startup.
+
+### Without Docker
+
+This starts the app on a throwaway embedded PostgreSQL. Data is lost when it stops.
+
+```bash
+./mvnw spring-boot:test-run -Dspring-boot.run.main-class=com.paisatrack.LocalDevApplication
+```
+
+On Windows, use `mvnw.cmd` the same way.
 
 The local profile also reads `.env`. If `JWT_SECRET` is empty there, a random
 signing key is generated at startup, so tokens stop working after a restart.
@@ -144,6 +156,26 @@ All endpoints are under `/api/v1`. Responses use the envelope
 | GET | `/transactions/{id}/history` | Audit trail with field-level from/to |
 | GET | `/transactions/daily-summary?date=` | Day totals, count, average, highest expense, category breakdown |
 
+**Salary, budgets and dashboard** (all bearer):
+
+| Method | Path | Description |
+|---|---|---|
+| GET, POST | `/income-sources` | Salary and other sources, with this month's expected vs received |
+| GET, PATCH | `/income-sources/{id}` | Get, or update name, type, category, account |
+| PUT | `/income-sources/{id}/expectation` | New expected amount from a month onward (history kept) |
+| GET | `/income-sources/{id}/history?year=` | Month-by-month expected vs received |
+| GET | `/income-sources/expected?month=YYYY-MM` | All sources for one month: RECEIVED, PARTIALLY_RECEIVED, PENDING, OVERDUE |
+| POST | `/income-sources/{id}/deactivate`, `/activate` | Stop or resume tracking |
+| GET, POST | `/budgets` | Budgets with utilization for the period containing `date` |
+| GET, PATCH, DELETE | `/budgets/{id}` | One budget; change amount, end date, alert thresholds |
+| POST | `/budgets/{id}/deactivate`, `/activate` | Pause or resume |
+| GET | `/dashboard?from=&to=` | Today/week/month cards, balances, budgets, expected income, charts, recent activity |
+| GET | `/dashboard/recent-transactions?limit=` | Latest transactions |
+| GET | `/dashboard/category-spending?from=&to=` | Spending by category with shares |
+
+Record a salary credit with `POST /income` and `incomeSourceId` (category and account default from the source;
+`periodMonth` defaults to the credit month).
+
 Error codes are listed in
 [`ErrorCode`](src/main/java/com/paisatrack/exception/ErrorCode.java).
 
@@ -175,10 +207,14 @@ src/main/java/com/paisatrack/
   transaction/  expenses, income, transfers, void/restore, summaries
   audit/        field-level audit trail
   idempotency/  Idempotency-Key replay protection
+  income/       income sources, monthly expectations, received vs expected
+  budget/       budgets, utilization, alert thresholds
+  dashboard/    home-screen aggregates
   common/       response envelope, paging, money rules, auditable entity base
   exception/    error codes and the global handler
   validation/   currency, timezone, password constraints
   logging/      correlation id and access log
   config/       clock and auditing, OpenAPI, CORS
+src/main/resources/static/app/     basic web dashboard (HTML/CSS/JS, no build step)
 src/main/resources/db/migration/   Flyway migrations (V1, V2, …)
 ```

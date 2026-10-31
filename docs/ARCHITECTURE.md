@@ -1,7 +1,7 @@
 # PaisaTrack architecture
 
-Status: Phases 1 (foundation and security) and 2 (accounts, categories,
-transactions) are done. This document records the decisions later phases build on.
+Status: Phases 1-3 (foundation and security; accounts, categories and transactions;
+salary, budgets and dashboard) are done. This document records the decisions later phases build on.
 
 ## Shape
 
@@ -19,6 +19,9 @@ through the module's public service.
 | `account` | Accounts, derived balances, default account, per-currency summary |
 | `category` | Two-level expense/income categories, default seeding |
 | `transaction` | Expenses, income, transfers, void/restore, search, daily summary |
+| `income` | Income sources, monthly expectations by effective month, expected vs received |
+| `budget` | Overall/category budgets, monthly/weekly/custom periods, utilization and alerts |
+| `dashboard` | Read-only home-screen aggregates |
 | `audit` | Append-only field-level audit trail (`audit_events`) |
 | `idempotency` | `Idempotency-Key` replay protection for creates |
 | `common` | Response envelope, paging, money rules, auditable entity base |
@@ -27,19 +30,22 @@ through the module's public service.
 | `logging` | Correlation id filter and the per-request access log |
 | `config` | Clock and auditing, OpenAPI, CORS properties |
 
-Dependencies point one way: `auth → user`, `transaction → account, category, user`,
-all of them `→ (common, exception, validation, audit, idempotency)`.
+Dependencies point one way: `auth → user`, `transaction → income, account, category, user`,
+`budget → transaction`, `dashboard → everything it summarises`, all of them `→ (common, exception, validation, audit, idempotency)`.
 The `user` module never calls `auth`. When a password changes, `user`
 publishes a `PasswordChangedEvent`. `auth` handles it in the same database
 transaction and revokes that user's refresh tokens.
 
 Where a lower module needs data from a higher one, it defines an interface the
-higher module implements: `AccountFlowProvider` (net flows for balances) and
-`CategoryUsageProvider` (is a category used) are implemented in `transaction`.
+higher module implements: `AccountFlowProvider` (net flows for balances),
+`IncomeReceiptProvider` (received per source and pay month) and
+`CategoryUsageProvider` (is a category used) are implemented in `transaction`;
+`budget` and `income` also implement `CategoryUsageProvider` in small standalone beans
+so no two services depend on each other.
 On registration, `UserRegisteredEvent` seeds a default Cash account and the
 default categories in the same transaction.
 
-Planned modules are `budget`, `lending`, `borrowing`, `repayment`, `loan`/`emi`,
+Planned modules are `lending`, `borrowing`, `repayment`, `loan`/`emi`,
 `recurring`, `report`, `currency`, `notification` and `attachment`. Each will
 follow the same layout.
 
@@ -148,6 +154,32 @@ Decisions confirmed with the product owner:
 - **Quick entry.** Only amount and category are required. Account defaults to
   the user's default account, date to today, payment method to the account type.
 
+## Salary, budgets and dashboard (Phase 3)
+
+Decisions confirmed with the product owner:
+
+- **Expected is not received.** An income source's expected monthly amount is a
+  plan. Only INCOME transactions count as income; the dashboard reports expected
+  and received side by side.
+- **Pay period.** An income transaction linked to a source settles one pay month
+  (`income_period`), defaulting to the credit month, so a salary credited on
+  1 Nov can settle October. Reports still use the credit date.
+- **Expectations have history.** `income_expectations` rows apply from their
+  month until the next row, so a raise doesn't rewrite earlier months. A row
+  with no amount means nothing is expected from that month.
+- **Month status:** RECEIVED (≥ expected), PARTIALLY_RECEIVED, PENDING (nothing
+  yet, due date not passed), OVERDUE, NOT_EXPECTED.
+- **Budgets count actual expenses only**, in the budget's currency; a category
+  budget includes its subcategories. No rollover: every period starts fresh.
+  Weekly periods follow the user's week-start day. Alert thresholds (default
+  75/90/100 %) are reported as crossed; notifications come in Phase 6.
+- **Dashboard** figures are in the user's default currency and come from the same
+  SQL totals as the transaction list and daily summary. Entries in other
+  currencies are counted, not summed.
+- **Web app.** A static page at `/app` (no build step, strict CSP, all user data
+  inserted as text). Tokens are kept in `sessionStorage`; refresh calls are
+  serialised. Phase 9 replaces it with the full frontend.
+
 ## Observability
 
 - Every request gets an `X-Request-Id`. A safe id sent by the client is
@@ -170,5 +202,9 @@ Decisions confirmed with the product owner:
   refresh calls.
 - **Transfers need matching currencies** until exchange rates exist.
 - **Account and category lists are not paginated**; they are small per user.
+- **Budget amount changes apply to every period**, past ones included; budgets
+  have no history table like income expectations do.
+- **Budget utilization runs one query per budget.** Fine for a handful of
+  budgets; batch it if users keep many.
 - **Forgot/reset password** needs an email provider. It is deferred to the
   notifications phase.

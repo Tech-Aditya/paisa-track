@@ -36,3 +36,6 @@ build/
 .env
 *.log
 
+
+### Local Claude tooling ###
+.claude/

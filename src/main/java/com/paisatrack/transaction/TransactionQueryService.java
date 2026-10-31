@@ -3,6 +3,7 @@ package com.paisatrack.transaction;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -31,6 +32,8 @@ import com.paisatrack.common.api.PageResponse;
 import com.paisatrack.common.money.MoneyRules;
 import com.paisatrack.exception.FieldValidationException;
 import com.paisatrack.exception.ResourceNotFoundException;
+import com.paisatrack.income.IncomeSourceRef;
+import com.paisatrack.income.IncomeSourceService;
 import com.paisatrack.transaction.TransactionSqlQueries.CategoryAmount;
 import com.paisatrack.transaction.TransactionSqlQueries.TopExpense;
 import com.paisatrack.transaction.TransactionSqlQueries.TypeTotal;
@@ -42,6 +45,7 @@ import com.paisatrack.transaction.dto.TransactionFilter;
 import com.paisatrack.transaction.dto.TransactionResponse;
 import com.paisatrack.transaction.dto.TransactionResponse.AccountInfo;
 import com.paisatrack.transaction.dto.TransactionResponse.CategoryInfo;
+import com.paisatrack.transaction.dto.TransactionResponse.SourceInfo;
 import com.paisatrack.user.UserPreferencesService;
 
 /** Read side: lookups, filtered lists, history and daily summaries. */
@@ -56,15 +60,18 @@ public class TransactionQueryService {
     private final TransactionSqlQueries sql;
     private final AccountService accounts;
     private final CategoryService categories;
+    private final IncomeSourceService incomeSources;
     private final UserPreferencesService preferences;
     private final AuditService audit;
 
     TransactionQueryService(TransactionRepository repository, TransactionSqlQueries sql, AccountService accounts,
-                            CategoryService categories, UserPreferencesService preferences, AuditService audit) {
+                            CategoryService categories, IncomeSourceService incomeSources,
+                            UserPreferencesService preferences, AuditService audit) {
         this.repository = repository;
         this.sql = sql;
         this.accounts = accounts;
         this.categories = categories;
+        this.incomeSources = incomeSources;
         this.preferences = preferences;
         this.audit = audit;
     }
@@ -96,7 +103,7 @@ public class TransactionQueryService {
     @Transactional(readOnly = true)
     public PageResponse<TransactionResponse> listForAccount(UUID userId, UUID accountId, TransactionFilter filter) {
         TransactionFilter scoped = new TransactionFilter(filter.type(), filter.from(), filter.to(), accountId,
-                filter.categoryId(), filter.paymentMethod(), filter.q(), filter.minAmount(), filter.maxAmount(),
+                filter.categoryId(), filter.paymentMethod(), filter.incomeSourceId(), filter.q(), filter.minAmount(), filter.maxAmount(),
                 filter.includeVoided(), filter.page(), filter.size(), filter.sortBy(), filter.direction());
         return list(userId, scoped);
     }
@@ -202,6 +209,9 @@ public class TransactionQueryService {
             if (categoryIds != null) {
                 p.add(root.get("categoryId").in(categoryIds));
             }
+            if (f.incomeSourceId() != null) {
+                p.add(cb.equal(root.get("incomeSourceId"), f.incomeSourceId()));
+            }
             if (f.paymentMethod() != null) {
                 p.add(cb.equal(root.get("paymentMethod"), f.paymentMethod()));
             }
@@ -240,7 +250,11 @@ public class TransactionQueryService {
     private List<TransactionResponse> toResponses(UUID userId, List<Transaction> transactions) {
         Set<UUID> accountIds = new HashSet<>();
         Set<UUID> categoryIds = new HashSet<>();
+        Set<UUID> sourceIds = new HashSet<>();
         for (Transaction t : transactions) {
+            if (t.getIncomeSourceId() != null) {
+                sourceIds.add(t.getIncomeSourceId());
+            }
             Stream.of(t.getAccountId(), t.getToAccountId()).filter(Objects::nonNull).forEach(accountIds::add);
             if (t.getCategoryId() != null) {
                 categoryIds.add(t.getCategoryId());
@@ -248,6 +262,7 @@ public class TransactionQueryService {
         }
         Map<UUID, AccountRef> accountRefs = accounts.refs(userId, accountIds);
         Map<UUID, CategoryRef> categoryRefs = categories.refs(userId, categoryIds);
+        Map<UUID, IncomeSourceRef> sourceRefs = incomeSources.refs(userId, sourceIds);
         return transactions.stream().map(t -> new TransactionResponse(
                 t.getId(), t.getType(), t.getStatus(),
                 MoneyRules.scaled(t.getAmount(), t.getCurrency()), t.getCurrency(),
@@ -256,12 +271,19 @@ public class TransactionQueryService {
                 accountInfo(accountRefs, t.getToAccountId()),
                 categoryInfo(categoryRefs, t.getCategoryId()),
                 t.getDescription(), t.getCounterparty(), t.getPaymentMethod(), t.getNotes(),
+                sourceInfo(sourceRefs, t.getIncomeSourceId()),
+                t.getIncomePeriod() == null ? null : YearMonth.from(t.getIncomePeriod()),
                 t.getVoidedAt(), t.getVoidReason(), t.getCreatedAt(), t.getUpdatedAt())).toList();
     }
 
     private static AccountInfo accountInfo(Map<UUID, AccountRef> refs, UUID id) {
         AccountRef ref = id == null ? null : refs.get(id);
         return ref == null ? null : new AccountInfo(ref.id(), ref.name());
+    }
+
+    private static SourceInfo sourceInfo(Map<UUID, IncomeSourceRef> refs, UUID id) {
+        IncomeSourceRef ref = id == null ? null : refs.get(id);
+        return ref == null ? null : new SourceInfo(ref.id(), ref.name());
     }
 
     private static CategoryInfo categoryInfo(Map<UUID, CategoryRef> refs, UUID id) {

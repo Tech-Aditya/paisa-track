@@ -13,13 +13,14 @@ import org.springframework.stereotype.Repository;
 
 import com.paisatrack.account.AccountFlowProvider;
 import com.paisatrack.category.CategoryUsageProvider;
+import com.paisatrack.income.IncomeReceiptProvider;
 
 /**
  * Aggregations done in SQL so balances and summaries never load whole histories into memory.
  * Every query is scoped by user_id and counts ACTIVE transactions only (except usage checks).
  */
 @Repository
-class TransactionSqlQueries implements AccountFlowProvider, CategoryUsageProvider {
+class TransactionSqlQueries implements AccountFlowProvider, CategoryUsageProvider, IncomeReceiptProvider {
 
     private final NamedParameterJdbcTemplate jdbc;
 
@@ -54,6 +55,23 @@ class TransactionSqlQueries implements AccountFlowProvider, CategoryUsageProvide
                 new MapSqlParameterSource().addValue("userId", userId).addValue("categoryId", categoryId),
                 Boolean.class);
         return Boolean.TRUE.equals(used);
+    }
+
+    @Override
+    public Map<UUID, Map<LocalDate, BigDecimal>> receivedByPeriod(UUID userId, LocalDate fromMonth, LocalDate toMonth) {
+        Map<UUID, Map<LocalDate, BigDecimal>> result = new HashMap<>();
+        jdbc.query("""
+                select income_source_id, income_period, sum(amount) as total
+                from transactions
+                where user_id = :userId and status = 'ACTIVE' and type = 'INCOME'
+                  and income_source_id is not null and income_period between :from and :to
+                group by income_source_id, income_period""",
+                range(userId, fromMonth, toMonth),
+                rs -> {
+                    result.computeIfAbsent(rs.getObject("income_source_id", UUID.class), k -> new HashMap<>())
+                            .put(rs.getObject("income_period", LocalDate.class), rs.getBigDecimal("total"));
+                });
+        return result;
     }
 
     record TypeTotal(String currency, TransactionType type, long count, BigDecimal total) {

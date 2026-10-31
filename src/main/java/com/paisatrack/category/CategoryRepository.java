@@ -20,4 +20,6 @@ interface CategoryRepository extends JpaRepository<Category, UUID> {
     List<Category> findByUserIdAndIdIn(UUID userId, Collection<UUID> ids);
 
     boolean existsByParentId(UUID parentId);
+
+    Optional<Category> findByUserIdAndSystemCode(UUID userId, String systemCode);
 }

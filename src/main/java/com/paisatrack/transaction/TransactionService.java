@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.YearMonth;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
@@ -27,6 +28,8 @@ import com.paisatrack.exception.ErrorCode;
 import com.paisatrack.exception.FieldValidationException;
 import com.paisatrack.exception.ResourceNotFoundException;
 import com.paisatrack.idempotency.IdempotencyService;
+import com.paisatrack.income.IncomeSourceRef;
+import com.paisatrack.income.IncomeSourceService;
 import com.paisatrack.transaction.dto.ExpenseRequest;
 import com.paisatrack.transaction.dto.IncomeRequest;
 import com.paisatrack.transaction.dto.TransactionResponse;
@@ -47,18 +50,20 @@ public class TransactionService {
     private final TransactionQueryService queries;
     private final AccountService accounts;
     private final CategoryService categories;
+    private final IncomeSourceService incomeSources;
     private final UserPreferencesService preferences;
     private final AuditService audit;
     private final IdempotencyService idempotency;
     private final Clock clock;
 
     TransactionService(TransactionRepository repository, TransactionQueryService queries, AccountService accounts,
-                       CategoryService categories, UserPreferencesService preferences, AuditService audit,
-                       IdempotencyService idempotency, Clock clock) {
+                       CategoryService categories, IncomeSourceService incomeSources, UserPreferencesService preferences,
+                       AuditService audit, IdempotencyService idempotency, Clock clock) {
         this.repository = repository;
         this.queries = queries;
         this.accounts = accounts;
         this.categories = categories;
+        this.incomeSources = incomeSources;
         this.preferences = preferences;
         this.audit = audit;
         this.idempotency = idempotency;
@@ -175,15 +180,16 @@ public class TransactionService {
     /** Common shape of expense and income requests. */
     private record Entry(BigDecimal amount, UUID categoryId, UUID accountId, String currency, LocalDate date,
                          LocalTime time, String description, String counterparty, PaymentMethod paymentMethod,
-                         String notes) {
+                         String notes, UUID incomeSourceId, YearMonth periodMonth) {
         static Entry of(ExpenseRequest r) {
             return new Entry(r.amount(), r.categoryId(), r.accountId(), r.currency(), r.transactionDate(),
-                    r.transactionTime(), r.description(), r.merchant(), r.paymentMethod(), r.notes());
+                    r.transactionTime(), r.description(), r.merchant(), r.paymentMethod(), r.notes(), null, null);
         }
 
         static Entry of(IncomeRequest r) {
             return new Entry(r.amount(), r.categoryId(), r.accountId(), r.currency(), r.transactionDate(),
-                    r.transactionTime(), r.description(), r.payer(), r.paymentMethod(), r.notes());
+                    r.transactionTime(), r.description(), r.payer(), r.paymentMethod(), r.notes(),
+                    r.incomeSourceId(), r.periodMonth());
         }
     }
 
@@ -191,17 +197,37 @@ public class TransactionService {
         if (current != null && entry.accountId() == null) {
             throw new FieldValidationException("accountId", "is required when editing");
         }
-        AccountRef account = accounts.requireForTransaction(userId, entry.accountId(), "accountId",
+        // An income source supplies defaults for account and category, and pins the currency.
+        IncomeSourceRef source = null;
+        if (entry.incomeSourceId() != null) {
+            source = incomeSources.requireForIncome(userId, entry.incomeSourceId(),
+                    current == null ? null : current.getIncomeSourceId());
+        } else if (entry.periodMonth() != null) {
+            throw new FieldValidationException("periodMonth", "needs incomeSourceId");
+        }
+        UUID accountId = entry.accountId() != null ? entry.accountId() : source != null ? source.accountId() : null;
+        AccountRef account = accounts.requireForTransaction(userId, accountId, "accountId",
                 current == null ? null : current.getAccountId());
         String currency = resolveCurrency(entry.currency(), account);
+        if (source != null && !source.currency().equals(currency)) {
+            throw new ApiException(ErrorCode.CURRENCY_MISMATCH,
+                    "Income source '" + source.name() + "' is in " + source.currency() + ", account '" + account.name() + "' in " + currency);
+        }
         MoneyRules.requireValidAmount("amount", entry.amount(), currency);
-        CategoryRef category = categories.requireForTransaction(userId, entry.categoryId(), categoryType(type),
+        UUID categoryId = entry.categoryId() != null ? entry.categoryId() : source != null ? source.categoryId() : null;
+        if (categoryId == null) {
+            throw new FieldValidationException("categoryId", "must not be null");
+        }
+        CategoryRef category = categories.requireForTransaction(userId, categoryId, categoryType(type),
                 current == null ? null : current.getCategoryId());
+        LocalDate date = resolveDate(userId, entry.date(), current);
+        LocalDate period = source == null ? null
+                : (entry.periodMonth() != null ? entry.periodMonth() : YearMonth.from(date)).atDay(1);
         PaymentMethod paymentMethod = entry.paymentMethod() != null
                 ? entry.paymentMethod() : PaymentMethod.defaultFor(account.type());
-        return new TransactionDetails(entry.amount(), currency, account.id(), null, category.id(),
-                resolveDate(userId, entry.date(), current), entry.time(),
-                clean(entry.description()), clean(entry.counterparty()), paymentMethod, clean(entry.notes()));
+        return new TransactionDetails(entry.amount(), currency, account.id(), null, category.id(), date, entry.time(),
+                clean(entry.description()), clean(entry.counterparty()), paymentMethod, clean(entry.notes()),
+                source == null ? null : source.id(), period);
     }
 
     private TransactionDetails resolveTransfer(UUID userId, TransferRequest request, Transaction current) {
@@ -220,7 +246,7 @@ public class TransactionService {
         MoneyRules.requireValidAmount("amount", request.amount(), currency);
         return new TransactionDetails(request.amount(), currency, from.id(), to.id(), null,
                 resolveDate(userId, request.transactionDate(), current), request.transactionTime(),
-                clean(request.description()), null, null, clean(request.notes()));
+                clean(request.description()), null, null, clean(request.notes()), null, null);
     }
 
     /** Amounts are stored in the account's currency. Conversion arrives with multi-currency support. */

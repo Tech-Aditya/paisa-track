@@ -2,7 +2,10 @@ package com.paisatrack.category;
 
 import java.util.UUID;
 
-/** Whether any transaction (voided included) uses a category. Implemented by the transaction module. */
+/**
+ * Something that references categories (transactions, budgets, income sources). A category any
+ * provider reports as used can't be deleted. Implemented by the referencing modules.
+ */
 public interface CategoryUsageProvider {
 
     boolean isUsed(UUID userId, UUID categoryId);

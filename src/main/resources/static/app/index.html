@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'">
+    <meta name="referrer" content="no-referrer">
+    <title>PaisaTrack</title>
+    <link rel="stylesheet" href="app.css">
+    <script src="app.js" defer></script>
+</head>
+<body>
+<!-- Sign in / register -->
+<main id="auth-view" class="auth" hidden>
+    <div class="auth-card">
+        <h1 class="brand">Paisa<span>Track</span></h1>
+        <p class="muted">Record every rupee. Understand every expense.</p>
+        <div class="tabs" role="tablist">
+            <button type="button" class="tab active" data-auth-tab="login" role="tab">Sign in</button>
+            <button type="button" class="tab" data-auth-tab="register" role="tab">Create account</button>
+        </div>
+        <form id="auth-form" novalidate>
+            <label class="field register-only" hidden>Full name
+                <input name="fullName" autocomplete="name" maxlength="100">
+            </label>
+            <label class="field">Email
+                <input name="email" type="email" autocomplete="email" required maxlength="254">
+            </label>
+            <label class="field">Password
+                <input name="password" type="password" autocomplete="current-password" required maxlength="64">
+            </label>
+            <p class="hint register-only" hidden>8+ characters with a letter and a digit.</p>
+            <p id="auth-error" class="error" role="alert" hidden></p>
+            <button class="btn primary wide" type="submit" id="auth-submit">Sign in</button>
+        </form>
+    </div>
+</main>
+
+<!-- Dashboard -->
+<div id="app-view" hidden>
+    <header class="topbar">
+        <h1 class="brand small">Paisa<span>Track</span></h1>
+        <div class="topbar-actions">
+            <span id="user-name" class="muted"></span>
+            <button type="button" class="btn ghost" id="theme-toggle" title="Switch light/dark">Theme</button>
+            <button type="button" class="btn ghost" id="logout">Sign out</button>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="toolbar">
+            <button type="button" class="btn primary" id="add-expense-open">+ Add expense</button>
+            <form id="range-form" class="range">
+                <label>From <input type="date" name="from"></label>
+                <label>To <input type="date" name="to"></label>
+                <button class="btn" type="submit">Apply</button>
+                <button class="btn ghost" type="button" id="range-reset">This month</button>
+            </form>
+        </section>
+
+        <section id="expense-panel" class="card form-card" hidden>
+            <h2>Add expense</h2>
+            <form id="expense-form" class="grid-form" novalidate>
+                <label class="field">Amount <input name="amount" inputmode="decimal" required placeholder="150"></label>
+                <label class="field">Category <select name="categoryId" required></select></label>
+                <label class="field">Account <select name="accountId"></select></label>
+                <label class="field">Date <input name="transactionDate" type="date"></label>
+                <label class="field span-2">Description <input name="description" maxlength="200" placeholder="Lunch at office"></label>
+                <p id="expense-error" class="error span-2" role="alert" hidden></p>
+                <div class="span-2 actions">
+                    <button class="btn primary" type="submit">Save</button>
+                    <button class="btn ghost" type="button" id="add-expense-close">Cancel</button>
+                </div>
+            </form>
+        </section>
+
+        <p id="notice" class="notice" hidden></p>
+
+        <section class="cards" id="period-cards"></section>
+
+        <section class="grid">
+            <article class="card">
+                <h2>Accounts</h2>
+                <div id="accounts"></div>
+            </article>
+            <article class="card">
+                <h2>Budgets</h2>
+                <div id="budgets"></div>
+            </article>
+            <article class="card">
+                <h2>Expected income this month</h2>
+                <div id="expected-income"></div>
+            </article>
+            <article class="card">
+                <h2>Spending by category <small id="range-label" class="muted"></small></h2>
+                <div id="categories"></div>
+            </article>
+            <article class="card span-all">
+                <h2>Daily spending</h2>
+                <div id="daily-chart" class="bar-chart"></div>
+            </article>
+            <article class="card span-all">
+                <h2>Income vs expense, last 6 months</h2>
+                <div id="trend-chart" class="trend"></div>
+            </article>
+            <article class="card span-all">
+                <h2>Recent transactions</h2>
+                <div class="table-wrap"><table id="recent"></table></div>
+            </article>
+        </section>
+        <p class="basis muted" id="basis"></p>
+    </main>
+</div>
+</body>
+</html>

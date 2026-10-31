@@ -76,6 +76,13 @@ public class Transaction extends AuditableEntity {
     @Column(name = "notes", length = 1000)
     private String notes;
 
+    /** Income only: the source this receipt belongs to, and its pay-period month (first day). */
+    @Column(name = "income_source_id")
+    private UUID incomeSourceId;
+
+    @Column(name = "income_period")
+    private LocalDate incomePeriod;
+
     @Column(name = "voided_at")
     private Instant voidedAt;
 
@@ -104,6 +111,8 @@ public class Transaction extends AuditableEntity {
         this.counterparty = d.counterparty();
         this.paymentMethod = d.paymentMethod();
         this.notes = d.notes();
+        this.incomeSourceId = d.incomeSourceId();
+        this.incomePeriod = d.incomePeriod();
     }
 
     void markVoided(Instant at, String reason) {
@@ -136,6 +145,8 @@ public class Transaction extends AuditableEntity {
         s.put("counterparty", counterparty);
         s.put("paymentMethod", paymentMethod);
         s.put("notes", notes);
+        s.put("incomeSourceId", incomeSourceId);
+        s.put("incomePeriod", incomePeriod == null ? null : incomePeriod.toString());
         return s;
     }
 
@@ -197,6 +208,14 @@ public class Transaction extends AuditableEntity {
 
     public String getNotes() {
         return notes;
+    }
+
+    public UUID getIncomeSourceId() {
+        return incomeSourceId;
+    }
+
+    public LocalDate getIncomePeriod() {
+        return incomePeriod;
     }
 
     public Instant getVoidedAt() {
