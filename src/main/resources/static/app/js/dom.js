@@ -78,6 +78,15 @@ const ICONS = {
     alert: 'M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',
     people: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8',
     clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2',
+    bell: 'M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0',
+    repeat: 'M17 2l4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 0 1-3 3H3',
+    settings: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z',
+    more: 'M5 12h.01M12 12h.01M19 12h.01',
+    edit: 'M12 20h9M16.5 3.5a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4z',
+    pause: 'M8 5v14M16 5v14',
+    play: 'M7 4l13 8-13 8z',
+    stop: 'M6 6h12v12H6z',
+    skip: 'M5 4l10 8-10 8zM19 5v14',
 };
 
 export function icon(name, extraClass = '') {
@@ -109,7 +118,7 @@ export function toast(message, kind = 'info') {
  * Opens a modal form. `fields(form)` builds the body; `submit(form)` runs on submit and may throw
  * an ApiError whose field errors are shown next to the matching inputs.
  */
-export function openSheet({ title, fields, submitLabel = 'Save', submit, onClose }) {
+export function openSheet({ title, fields, submitLabel = 'Save', submit, onClose, danger = null }) {
     const errorBox = el('div', { class: 'form-error', role: 'alert', hidden: true });
     const body = el('div', { class: 'sheet-body' });
     const saveBtn = el('button', { class: 'btn primary', type: 'submit', text: submitLabel });
@@ -118,6 +127,8 @@ export function openSheet({ title, fields, submitLabel = 'Save', submit, onClose
             el('button', { class: 'btn ghost icon-only', type: 'button', 'aria-label': 'Close', onclick: () => close() }, icon('x'))),
         body,
         el('div', { class: 'sheet-foot' },
+            danger ? el('button', { class: 'btn ghost danger push-left', type: 'button', text: danger.label,
+                onclick: async () => { try { if (await danger.action()) close(); } catch (err) { showErrors(form, errorBox, err); } } }) : null,
             el('button', { class: 'btn ghost', type: 'button', text: 'Cancel', onclick: () => close() }), saveBtn));
     const dialog = el('dialog', { class: 'sheet' }, form);
 
@@ -147,7 +158,8 @@ export function openSheet({ title, fields, submitLabel = 'Save', submit, onClose
     return { dialog, form, close, render };
 }
 
-/** A read-only modal with action buttons; content() is re-run by ender() after changes. */
+/** A read-only modal with action buttons; content() is re-run by 
+ender() after changes. */
 export function openPanel({ title, content, onClose }) {
     const body = el('div', { class: 'sheet-body' });
     const dialog = el('dialog', { class: 'sheet' },
@@ -155,7 +167,13 @@ export function openPanel({ title, content, onClose }) {
             el('button', { class: 'btn ghost icon-only', type: 'button', 'aria-label': 'Close', onclick: () => close() }, icon('x'))),
         body);
     const close = () => { dialog.close(); dialog.remove(); onClose?.(); };
-    const render = async () => fill(body, await content({ close, render }));
+    const render = async () => {
+        try {
+            fill(body, await content({ close, render }));
+        } catch (err) {
+            fill(body, empty(err?.message ?? 'Something went wrong', 'alert'));
+        }
+    };
     dialog.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
     document.body.append(dialog);
     dialog.showModal();

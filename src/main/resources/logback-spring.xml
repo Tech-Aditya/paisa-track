@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PaisaTrack logging.
+    dev   readable, coloured console + rolling file logs/paisatrack.log (async)
+    prod  ECS JSON on stdout for the log shipper; add the "logfile" profile for a rolling JSON file too
+    other profiles (tests) console only
+  Every line carries the request id; files and JSON also carry the user id (both from the MDC).
+  Patterns, levels and rolling limits are set in application*.yml (logging.*).
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <springProperty scope="context" name="APP_NAME" source="spring.application.name" defaultValue="paisatrack"/>
+
+    <springProfile name="dev">
+        <property name="LOG_FILE" value="${LOG_FILE:-${LOG_PATH:-logs}/paisatrack.log}"/>
+        <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+        <include resource="org/springframework/boot/logging/logback/file-appender.xml"/>
+        <!-- Never block a request on disk I/O; nothing is dropped unless the queue is full. -->
+        <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
+            <queueSize>2048</queueSize>
+            <discardingThreshold>0</discardingThreshold>
+            <neverBlock>true</neverBlock>
+            <appender-ref ref="FILE"/>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="ASYNC_FILE"/>
+        </root>
+    </springProfile>
+
+    <springProfile name="prod">
+        <include resource="org/springframework/boot/logging/logback/structured-console-appender.xml"/>
+        <root level="WARN">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+        <springProfile name="logfile">
+            <property name="LOG_FILE" value="${LOG_FILE:-${LOG_PATH:-logs}/paisatrack.json}"/>
+            <include resource="org/springframework/boot/logging/logback/structured-file-appender.xml"/>
+            <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
+                <queueSize>4096</queueSize>
+                <discardingThreshold>0</discardingThreshold>
+                <neverBlock>true</neverBlock>
+                <appender-ref ref="FILE"/>
+            </appender>
+            <root>
+                <appender-ref ref="ASYNC_FILE"/>
+            </root>
+        </springProfile>
+    </springProfile>
+
+    <springProfile name="!dev &amp; !prod">
+        <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+</configuration>

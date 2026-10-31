@@ -12,13 +12,15 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+import com.paisatrack.platform.logging.RequestCorrelation;
+
 /**
  * Puts the authenticated user's id in the MDC, so production JSON logs carry a userId field.
  * The dev console pattern leaves it out to keep lines short. Registered inside the security chain.
  */
 class UserMdcFilter extends OncePerRequestFilter {
 
-    static final String MDC_KEY = "userId";
+    static final String MDC_KEY = RequestCorrelation.USER_MDC_KEY;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -27,10 +29,7 @@ class UserMdcFilter extends OncePerRequestFilter {
         if (auth instanceof JwtAuthenticationToken jwt && jwt.isAuthenticated()) {
             MDC.put(MDC_KEY, jwt.getToken().getSubject());
         }
-        try {
-            chain.doFilter(request, response);
-        } finally {
-            MDC.remove(MDC_KEY);
-        }
+        // Left in place so the access-log line carries it; CorrelationIdFilter (outermost) clears it.
+        chain.doFilter(request, response);
     }
 }

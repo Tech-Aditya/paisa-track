@@ -21,6 +21,8 @@ import com.paisatrack.modules.budget.BudgetService;
 import com.paisatrack.modules.debt.DebtService;
 import com.paisatrack.modules.debt.dto.DebtSummaryResponse;
 import com.paisatrack.modules.loan.LoanService;
+import com.paisatrack.modules.recurring.RecurringService;
+import com.paisatrack.modules.recurring.dto.RecurringSummaryResponse;
 import com.paisatrack.modules.loan.dto.LoanSummaryResponse;
 import com.paisatrack.platform.money.MoneyRules;
 import com.paisatrack.modules.dashboard.dto.DashboardResponse;
@@ -61,11 +63,12 @@ public class DashboardService {
     private final IncomeSourceService incomeSources;
     private final DebtService debts;
     private final LoanService loans;
+    private final RecurringService recurring;
     private final UserPreferencesService preferences;
 
     DashboardService(TransactionTotalsService totals, TransactionQueryService transactions, AccountService accounts,
                      BudgetService budgets, IncomeSourceService incomeSources, DebtService debts, LoanService loans,
-                     UserPreferencesService preferences) {
+                     RecurringService recurring, UserPreferencesService preferences) {
         this.totals = totals;
         this.transactions = transactions;
         this.accounts = accounts;
@@ -73,6 +76,7 @@ public class DashboardService {
         this.incomeSources = incomeSources;
         this.debts = debts;
         this.loans = loans;
+        this.recurring = recurring;
         this.preferences = preferences;
     }
 
@@ -109,7 +113,8 @@ public class DashboardService {
                 monthlyTrend(userId, currency, YearMonth.from(today)),
                 recent(userId, 10),
                 debtsOverview(userId, currency),
-                loansOverview(userId, currency));
+                loansOverview(userId, currency),
+                recurringOverview(userId, currency));
     }
 
     /** Spending by top-level category with each one's share (default: this month). */
@@ -140,6 +145,17 @@ public class DashboardService {
                 MoneyRules.scaled(t == null ? BigDecimal.ZERO : t.outstandingPrincipal(), currency),
                 MoneyRules.scaled(t == null ? BigDecimal.ZERO : t.monthlyEmi(), currency),
                 t == null ? 0 : t.activeLoans(), t == null ? 0 : t.missedCount(), upcoming);
+    }
+
+    private DashboardResponse.RecurringOverview recurringOverview(UUID userId, String currency) {
+        RecurringSummaryResponse summary = recurring.summary(userId, 30);
+        RecurringSummaryResponse.CurrencyTotals t = summary.currencies().stream()
+                .filter(c -> c.currency().equals(currency)).findFirst().orElse(null);
+        var upcoming = summary.expected().stream().filter(o -> o.currency().equals(currency)).limit(5).toList();
+        return new DashboardResponse.RecurringOverview(
+                MoneyRules.scaled(t == null ? BigDecimal.ZERO : t.expectedOutflow(), currency),
+                MoneyRules.scaled(t == null ? BigDecimal.ZERO : t.expectedInflow(), currency),
+                t == null ? 0 : t.overdueCount(), upcoming);
     }
 
     private DashboardResponse.DebtsOverview debtsOverview(UUID userId, String currency) {

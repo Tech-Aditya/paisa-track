@@ -55,4 +55,11 @@ export function greeting(hour = new Date().getHours()) {
     return 'Good evening';
 }
 
+/** "₹ 1,00,000.50" -> "100000.50"; null when empty. Validation stays on the server. */
+export function parseAmount(text) {
+    if (text === null || text === undefined) return null;
+    const cleaned = String(text).replace(/[\s,₹$€£]/g, '');
+    return cleaned === '' ? null : cleaned;
+}
+
 export const titleCase = (s) => s.charAt(0) + s.slice(1).toLowerCase().replaceAll('_', ' ');

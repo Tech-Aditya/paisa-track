@@ -4,7 +4,7 @@
 import { api, errorText } from '../api.js';
 import { kpi } from '../components.js';
 import { el, empty, field, fill, icon, input, openPanel, openSheet, segmented, select, skeleton, toast } from '../dom.js';
-import { isoDate, money, plural, shortDate, titleCase } from '../format.js';
+import { isoDate, money, parseAmount, plural, shortDate, titleCase } from '../format.js';
 import { accountOptions, store } from '../store.js';
 
 const TYPES = ['HOME', 'VEHICLE', 'PERSONAL', 'EDUCATION', 'GOLD', 'OTHER'];
@@ -228,8 +228,8 @@ export async function openLoanDialog({ onSaved }) {
         submit: async (form) => {
             const v = (n) => valueOf(form, n);
             await api.post('/loans', {
-                name: v('name'), lender: v('lender'), type: v('type'), principal: v('principal'), annualRate: v('annualRate'),
-                tenureMonths: v('tenureMonths'), emiAmount: v('emiAmount'), startDate: v('startDate'), firstEmiDate: v('firstEmiDate'),
+                name: v('name'), lender: v('lender'), type: v('type'), principal: parseAmount(v('principal')), annualRate: v('annualRate'),
+                tenureMonths: v('tenureMonths'), emiAmount: parseAmount(v('emiAmount')), startDate: v('startDate'), firstEmiDate: v('firstEmiDate'),
                 disbursementAccountId: v('disbursementAccountId'), paymentAccountId: v('paymentAccountId'),
                 emisPaidBeforeTracking: v('emisPaidBeforeTracking'), notes: v('notes'),
             }, { 'Idempotency-Key': key });
@@ -247,7 +247,7 @@ export async function openLoanDialog({ onSaved }) {
         const mine = ++seq;
         try {
             const p = await api.post('/loans/preview', {
-                principal: v('principal'), annualRate: v('annualRate'), tenureMonths: v('tenureMonths'), emiAmount: v('emiAmount'),
+                principal: parseAmount(v('principal')), annualRate: v('annualRate'), tenureMonths: v('tenureMonths'), emiAmount: parseAmount(v('emiAmount')),
             });
             if (mine !== seq) return;
             fill(preview,
@@ -309,7 +309,7 @@ async function openPrepayDialog(loan, onSaved) {
         ],
         submit: async (form) => {
             await api.post(`/loans/${loan.id}/prepayments`, {
-                amount: valueOf(form, 'amount'), paymentDate: valueOf(form, 'paymentDate'), accountId: valueOf(form, 'accountId'),
+                amount: parseAmount(valueOf(form, 'amount')), paymentDate: valueOf(form, 'paymentDate'), accountId: valueOf(form, 'accountId'),
             }, { 'Idempotency-Key': key });
             store.invalidate('accounts');
             onSaved();

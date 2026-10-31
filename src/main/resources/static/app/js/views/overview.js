@@ -9,6 +9,7 @@ import { addDays, greeting, isoDate, longDate, money, plural, shortDate } from '
 import { store } from '../store.js';
 import { debtRow, openDebtDetail } from './debts.js';
 import { openLoanDetail } from './loans.js';
+import { occurrenceRow } from './recurring.js';
 
 const PRESETS = [
     { value: 'month', label: 'This month' },
@@ -66,9 +67,7 @@ function header(me, today, reload) {
         el('div', {}, el('h1', { text: `${greeting()}, ${first}` }), el('p', { text: longDate(today) })),
         el('div', { class: 'head-actions' },
             segmented(PRESETS, preset, (v) => { preset = v; reload(); }, 'Date range'),
-            customInputs,
-            el('button', { class: 'btn primary desktop-only', type: 'button',
-                onclick: () => openTransactionDialog({ preset: { today }, onSaved: reload }) }, icon('plus'), 'Add transaction')));
+            customInputs));
 }
 
 function loadingGrid() {
@@ -101,15 +100,17 @@ function content(d, range, reload) {
         el('div', { class: 'col-8' }, card('Daily spending', { sub: spanLabel }, dailyChart(d))),
         el('div', { class: 'col-4' }, card('By category', { sub: spanLabel }, categoryBreakdown(d))),
         el('div', { class: 'col-4' }, card('Budgets', { action: smallButton('New', () => openBudgetDialog({ onSaved: reload })) }, budgets(d))),
-        el('div', { class: 'col-4' }, card('Expected income', { sub: 'this month',
-            action: smallButton('Source', () => openIncomeSourceDialog({ onSaved: reload })) }, expectedIncome(d, reload))),
+        el('div', { class: 'col-4' }, card('Upcoming bills', {
+            action: el('a', { class: 'btn sm ghost', href: '#/recurring' }, 'Open', icon('right')) }, billsCard(d, reload))),
         el('div', { class: 'col-4' }, card('Accounts', { action: smallButton('Account', () => openAccountDialog({ onSaved: reload })) }, accounts(d))),
         el('div', { class: 'col-8' }, card('Income vs expense', { sub: 'last 6 months' }, trend(d))),
-        el('div', { class: 'col-4' }, card('Loans & EMIs', {
+        el('div', { class: 'col-4' }, card('Expected income', { sub: 'this month',
+            action: smallButton('Source', () => openIncomeSourceDialog({ onSaved: reload })) }, expectedIncome(d, reload))),
+        el('div', { class: 'col-6' }, card('Loans & EMIs', {
             action: el('a', { class: 'btn sm ghost', href: '#/loans' }, 'Open', icon('right')) }, loansCard(d, reload))),
-        el('div', { class: 'col-4' }, card('Lending & borrowing', {
+        el('div', { class: 'col-6' }, card('Lending & borrowing', {
             action: el('a', { class: 'btn sm ghost', href: '#/debts' }, 'Open', icon('right')) }, debtsCard(d, reload))),
-        el('div', { class: 'col-8' }, card('Recent activity', {
+        el('div', { class: 'col-12' }, card('Recent activity', {
             action: el('a', { class: 'btn sm ghost', href: '#/transactions' }, 'View all', icon('right')) }, recent(d, reload))));
 
     const note = el('p', { class: 'faint', style: { marginTop: '16px', fontSize: '12.5px' } },
@@ -195,6 +196,20 @@ function accounts(d) {
         el('div', { class: 'total' }, el('span', { text: 'Net worth' }), el('span', { class: 'num', text: money(a.netWorth, d.currency) })));
 }
 
+function billsCard(d, reload) {
+    const x = d.recurring;
+    if (!x.upcoming.length) {
+        return empty('Add rent, bills and subscriptions to get reminded before they are due.', 'repeat',
+            el('a', { class: 'btn sm', href: '#/recurring' }, icon('plus'), 'Add recurring'));
+    }
+    return el('div', {},
+        el('div', { class: 'debt-stats' },
+            el('div', {}, el('span', { class: 'faint', text: 'To pay' }), el('b', { class: 'num neg', text: money(x.expectedOutflow, d.currency) })),
+            el('div', {}, el('span', { class: 'faint', text: x.overdueCount ? 'Overdue' : 'Expected in' }),
+                el('b', { class: `num ${x.overdueCount ? 'neg' : 'pos'}`, text: x.overdueCount ? String(x.overdueCount) : money(x.expectedInflow, d.currency) }))),
+        el('div', { class: 'rows compact' }, x.upcoming.slice(0, 4).map((o) => occurrenceRow(o, null, reload))));
+}
+
 function loansCard(d, reload) {
     const x = d.loans;
     if (!x.activeLoans) return empty('Add a home, car or personal loan to track EMIs.', 'bank');
@@ -239,5 +254,6 @@ function recent(d, reload) {
             el('button', { class: 'btn primary', type: 'button', onclick: () => openTransactionDialog({ preset: { today: d.today }, onSaved: reload }).catch((e) => toast(errorText(e), 'error')) },
                 icon('plus'), 'Add your first expense'));
     }
-    return el('div', { class: 'rows' }, d.recentTransactions.slice(0, 7).map((t) => txRow(t)));
+    const edit = (t) => openTransactionDialog({ existing: t, onSaved: reload }).catch((e) => toast(errorText(e), 'error'));
+    return el('div', { class: 'rows' }, d.recentTransactions.slice(0, 8).map((t) => txRow(t, null, t.status === 'ACTIVE' && !t.loanId ? edit : null)));
 }

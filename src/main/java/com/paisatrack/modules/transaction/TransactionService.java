@@ -14,6 +14,7 @@ import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,11 +58,12 @@ public class TransactionService {
     private final UserPreferencesService preferences;
     private final AuditService audit;
     private final IdempotencyService idempotency;
+    private final ApplicationEventPublisher events;
     private final Clock clock;
 
     TransactionService(TransactionRepository repository, TransactionQueryService queries, AccountService accounts,
                        CategoryService categories, IncomeSourceService incomeSources, UserPreferencesService preferences,
-                       AuditService audit, IdempotencyService idempotency, Clock clock) {
+                       AuditService audit, IdempotencyService idempotency, ApplicationEventPublisher events, Clock clock) {
         this.repository = repository;
         this.queries = queries;
         this.accounts = accounts;
@@ -70,6 +72,7 @@ public class TransactionService {
         this.preferences = preferences;
         this.audit = audit;
         this.idempotency = idempotency;
+        this.events = events;
         this.clock = clock;
     }
 
@@ -121,6 +124,7 @@ public class TransactionService {
             audit.record(userId, AUDIT_ENTITY, transactionId, AuditAction.VOIDED,
                     cleanReason == null ? null : Map.of("reason", cleanReason));
             log.info("Transaction voided transactionId={}", transactionId);
+            publish(transaction, TransactionChangedEvent.Change.VOIDED);
         }
         return queries.get(userId, transactionId);
     }
@@ -142,6 +146,7 @@ public class TransactionService {
             repository.flush();
             audit.record(userId, AUDIT_ENTITY, transactionId, AuditAction.RESTORED, null);
             log.info("Transaction restored transactionId={}", transactionId);
+            publish(transaction, TransactionChangedEvent.Change.RESTORED);
         }
         return queries.get(userId, transactionId);
     }
@@ -226,8 +231,13 @@ public class TransactionService {
         if (!changes.isEmpty()) {
             audit.record(userId, AUDIT_ENTITY, transactionId, AuditAction.UPDATED, changes);
             log.info("Transaction updated transactionId={} fields={}", transactionId, changes.keySet());
+            publish(transaction, TransactionChangedEvent.Change.UPDATED);
         }
         return queries.get(userId, transactionId);
+    }
+
+    private void publish(Transaction transaction, TransactionChangedEvent.Change change) {
+        events.publishEvent(new TransactionChangedEvent(transaction.getUserId(), transaction.getId(), change, transaction.getAmount()));
     }
 
     // ---- validation and defaults ----

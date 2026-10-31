@@ -13,6 +13,7 @@ import com.paisatrack.modules.account.AccountType;
 import com.paisatrack.modules.budget.dto.BudgetResponse;
 import com.paisatrack.modules.debt.dto.DebtResponse;
 import com.paisatrack.modules.loan.dto.LoanSummaryResponse;
+import com.paisatrack.modules.recurring.dto.OccurrenceResponse;
 import com.paisatrack.modules.income.dto.ExpectedIncomeResponse;
 import com.paisatrack.modules.transaction.dto.TransactionResponse;
 
@@ -32,7 +33,8 @@ public record DashboardResponse(
         @Schema(description = "Last 6 months, oldest first") List<MonthlyTrend> monthlyTrend,
         List<TransactionResponse> recentTransactions,
         @Schema(description = "Lending and borrowing in your default currency; not part of net worth") DebtsOverview debts,
-        @Schema(description = "Loans in your default currency; outstanding principal is already in net worth") LoansOverview loans) {
+        @Schema(description = "Loans in your default currency; outstanding principal is already in net worth") LoansOverview loans,
+        @Schema(description = "Recurring bills and income still expected (plans, not in any total)") RecurringOverview recurring) {
 
     public record Periods(Period today, Period week, Period month,
                           @Schema(description = "The from/to range, when one was requested") Period selected) {
@@ -60,6 +62,13 @@ public record DashboardResponse(
 
     public record LoansOverview(BigDecimal outstandingPrincipal, BigDecimal monthlyEmi, int activeLoans, int missedCount,
                                 @Schema(description = "Missed or due within 30 days, soonest first") List<LoanSummaryResponse.UpcomingEmi> upcoming) {
+    }
+
+    public record RecurringOverview(
+            @Schema(description = "Expected expenses and transfers out: overdue plus the next 30 days") BigDecimal expectedOutflow,
+            @Schema(description = "Expected income: overdue plus the next 30 days") BigDecimal expectedInflow,
+            int overdueCount,
+            @Schema(description = "Overdue or due within 30 days, soonest first") List<OccurrenceResponse> upcoming) {
     }
 
     public record DebtsOverview(BigDecimal owedToYou, BigDecimal youOwe, int overdueCount,

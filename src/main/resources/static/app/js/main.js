@@ -1,22 +1,32 @@
-// App entry: auth gate, shell (sidebar / mobile tab bar), hash routing, theme and shortcuts.
+// App entry: auth gate, shell (sidebar / mobile tab bar), hash routing, theme, reminders and shortcuts.
 
 import { api, errorText, session, whenSignedOut } from './api.js';
 import { renderAuth } from './auth.js';
 import { el, fill, icon, toast } from './dom.js';
 import { openTransactionDialog } from './forms.js';
 import { initials } from './format.js';
+import { bellButton, refreshNotifications } from './notifications.js';
 import { store } from './store.js';
 import { renderDebts } from './views/debts.js';
 import { renderLoans } from './views/loans.js';
 import { renderOverview } from './views/overview.js';
+import { renderRecurring } from './views/recurring.js';
+import { renderSettings } from './views/settings.js';
 import { renderTransactions } from './views/transactions.js';
 
 const ROUTES = {
-    '#/overview': { label: 'Overview', iconName: 'home', render: renderOverview },
-    '#/transactions': { label: 'Transactions', iconName: 'list', render: renderTransactions },
-    '#/loans': { label: 'Loans', iconName: 'bank', render: renderLoans },
-    '#/debts': { label: 'Lending', iconName: 'people', render: renderDebts },
+    '#/overview': { label: 'Overview', short: 'Home', iconName: 'home', group: 'Money', render: renderOverview },
+    '#/transactions': { label: 'Transactions', short: 'Activity', iconName: 'list', group: 'Money', render: renderTransactions },
+    '#/recurring': { label: 'Bills & recurring', short: 'Bills', iconName: 'repeat', group: 'Plan', render: renderRecurring },
+    '#/loans': { label: 'Loans & EMIs', short: 'Loans', iconName: 'bank', group: 'Plan', render: renderLoans },
+    '#/debts': { label: 'Lending', short: 'Lending', iconName: 'people', group: 'Plan', render: renderDebts },
+    '#/settings': {
+        label: 'Settings', short: 'Settings', iconName: 'settings', group: 'Account',
+        render: (root) => renderSettings(root, { onThemeChange: applyTheme, onPasswordChanged: signOut }),
+    },
 };
+/** Phone tab bar; everything else lives under "More". */
+const TABS = ['#/overview', '#/transactions', '#/recurring', '#/loans'];
 
 const root = document.getElementById('root');
 let main;
@@ -26,6 +36,7 @@ let main;
 function applyTheme(theme) {
     if (theme === 'LIGHT' || theme === 'DARK') document.documentElement.dataset.theme = theme.toLowerCase();
     else delete document.documentElement.dataset.theme;
+    renderNav();
 }
 
 function isDark() {
@@ -36,54 +47,90 @@ function isDark() {
 async function toggleTheme() {
     const next = isDark() ? 'LIGHT' : 'DARK';
     applyTheme(next);
-    renderNav();
     await api.patch('/users/me/preferences', { theme: next }).catch(() => null);
     store.invalidate('me');
 }
 
 // ---- Shell ----
 
-function navLinks() {
-    const current = ROUTES[location.hash] ? location.hash : '#/overview';
-    return Object.entries(ROUTES).map(([hash, r]) => el('a', {
-        class: 'nav-link', href: hash, 'aria-current': hash === current ? 'page' : null,
-    }, icon(r.iconName), r.label));
+const currentHash = () => (ROUTES[location.hash] ? location.hash : '#/overview');
+
+function navLink(hash, { short = false } = {}) {
+    const r = ROUTES[hash];
+    return el('a', { class: 'nav-link', href: hash, 'aria-current': hash === currentHash() ? 'page' : null },
+        icon(r.iconName), el('span', { text: short ? r.short : r.label }));
 }
 
 let sidebar;
 let tabbar;
+let mobileBar;
 let me;
 
 function renderNav() {
     if (!sidebar) return;
-    const themeLabel = isDark() ? 'Light mode' : 'Dark mode';
+    const groups = [...new Set(Object.values(ROUTES).map((r) => r.group))];
     fill(sidebar,
-        el('a', { class: 'brand', href: '#/overview' }, el('span', { class: 'brand-mark', text: '₹' }), 'PaisaTrack'),
-        navLinks(),
+        el('div', { class: 'sidebar-top' },
+            el('a', { class: 'brand', href: '#/overview' }, el('span', { class: 'brand-mark', text: '₹' }), 'PaisaTrack'),
+            bellButton()),
+        el('button', { class: 'btn primary wide quick-add', type: 'button', onclick: () => newTransaction() }, icon('plus'), 'Add transaction',
+            el('kbd', { text: 'N' })),
+        groups.map((g) => el('nav', { class: 'nav-group', 'aria-label': g },
+            el('span', { class: 'nav-label', text: g }),
+            Object.keys(ROUTES).filter((h) => ROUTES[h].group === g).map((h) => navLink(h)))),
         el('div', { class: 'sidebar-foot' },
-            el('button', { class: 'nav-link', type: 'button', onclick: toggleTheme }, icon(isDark() ? 'sun' : 'moon'), themeLabel),
-            el('button', { class: 'nav-link', type: 'button', onclick: signOut }, icon('logout'), 'Sign out'),
-            el('div', { class: 'user-chip' },
+            el('button', { class: 'nav-link', type: 'button', onclick: toggleTheme }, icon(isDark() ? 'sun' : 'moon'),
+                el('span', { text: isDark() ? 'Light mode' : 'Dark mode' })),
+            el('button', { class: 'nav-link', type: 'button', onclick: signOut }, icon('logout'), el('span', { text: 'Sign out' })),
+            el('a', { class: 'user-chip', href: '#/settings', title: 'Settings' },
                 el('span', { class: 'avatar', text: initials(me.fullName) }),
                 el('span', { class: 'who' }, el('b', { text: me.fullName }), el('span', { text: me.email })))));
-    fill(tabbar, navLinks());
+    const moreActive = !TABS.includes(currentHash());
+    fill(tabbar, TABS.map((h) => navLink(h, { short: true })),
+        el('button', { class: 'nav-link', type: 'button', 'aria-current': moreActive ? 'page' : null, onclick: openMore },
+            icon('more'), el('span', { text: 'More' })));
+    fill(mobileBar,
+        el('a', { class: 'brand', href: '#/overview' }, el('span', { class: 'brand-mark', text: '₹' }), 'PaisaTrack'),
+        el('div', { class: 'head-actions' },
+            bellButton(),
+            el('button', { class: 'btn ghost icon-only', type: 'button', 'aria-label': isDark() ? 'Light mode' : 'Dark mode', onclick: toggleTheme },
+                icon(isDark() ? 'sun' : 'moon'))));
+}
+
+/** Phone "More" menu: the pages that don't fit the tab bar, plus account actions. */
+function openMore() {
+    const close = () => { dialog.close(); dialog.remove(); };
+    const go = (hash) => () => { close(); location.hash = hash; };
+    const dialog = el('dialog', { class: 'sheet more-sheet', 'aria-label': 'More' },
+        el('div', { class: 'sheet-head' },
+            el('div', { class: 'user-chip' }, el('span', { class: 'avatar', text: initials(me.fullName) }),
+                el('span', { class: 'who' }, el('b', { text: me.fullName }), el('span', { text: me.email }))),
+            el('button', { class: 'btn ghost icon-only', type: 'button', 'aria-label': 'Close', onclick: close }, icon('x'))),
+        el('div', { class: 'sheet-body more-list' },
+            Object.keys(ROUTES).filter((h) => !TABS.includes(h)).map((h) => el('button', { class: 'nav-link', type: 'button', onclick: go(h) },
+                icon(ROUTES[h].iconName), el('span', { text: ROUTES[h].label }))),
+            el('button', { class: 'nav-link', type: 'button', onclick: () => { close(); toggleTheme(); } }, icon(isDark() ? 'sun' : 'moon'),
+                el('span', { text: isDark() ? 'Light mode' : 'Dark mode' })),
+            el('button', { class: 'nav-link danger', type: 'button', onclick: () => { close(); signOut(); } }, icon('logout'), el('span', { text: 'Sign out' }))));
+    dialog.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
+    dialog.addEventListener('click', (e) => { if (e.target === dialog) close(); });
+    document.body.append(dialog);
+    dialog.showModal();
 }
 
 function renderShell() {
     sidebar = el('aside', { class: 'sidebar', 'aria-label': 'Main navigation' });
     tabbar = el('nav', { class: 'tabbar', 'aria-label': 'Main navigation' });
+    mobileBar = el('header', { class: 'mobile-bar' });
     main = el('main', { class: 'main', id: 'main', tabindex: '-1' });
-    const mobileBar = el('header', { class: 'mobile-bar' },
-        el('a', { class: 'brand', href: '#/overview' }, el('span', { class: 'brand-mark', text: '₹' }), 'PaisaTrack'),
-        el('div', { class: 'head-actions' },
-            el('button', { class: 'btn ghost icon-only', type: 'button', 'aria-label': 'Toggle theme', onclick: toggleTheme }, icon('moon')),
-            el('button', { class: 'btn ghost icon-only', type: 'button', 'aria-label': 'Sign out', onclick: signOut }, icon('logout'))));
     const fab = el('button', { class: 'fab', type: 'button', 'aria-label': 'Add transaction', onclick: () => newTransaction() }, icon('plus'));
 
     root.className = '';
-    fill(root, el('div', { class: 'shell' }, sidebar, el('div', {}, mobileBar, main)), tabbar, fab);
+    fill(root, el('div', { class: 'shell' }, sidebar, el('div', { class: 'content' }, mobileBar, main)), tabbar, fab);
     renderNav();
 }
+
+let routeSeq = 0;
 
 async function route() {
     if (!main) return;
@@ -91,12 +138,17 @@ async function route() {
         history.replaceState(null, '', '#/overview');
     }
     renderNav();
-    const view = ROUTES[location.hash] ?? ROUTES['#/overview'];
+    const view = ROUTES[currentHash()];
     document.title = `${view.label} · PaisaTrack`;
+    const seq = ++routeSeq;
+    main.classList.remove('enter');
+    void main.offsetWidth; // restart the page-enter animation
+    main.classList.add('enter');
+    window.scrollTo({ top: 0 });
     try {
         await view.render(main);
     } catch (e) {
-        toast(errorText(e), 'error');
+        if (seq === routeSeq) toast(errorText(e), 'error');
     }
 }
 
@@ -116,6 +168,7 @@ async function start() {
     applyTheme(me.preferences.theme);
     renderShell();
     await route();
+    refreshNotifications();
 }
 
 function showAuth() {
@@ -135,6 +188,13 @@ async function signOut() {
 
 whenSignedOut(showAuth);
 window.addEventListener('hashchange', route);
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => renderNav());
+// Re-check reminders when the tab comes back after a while.
+let hiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) hiddenAt = Date.now();
+    else if (main && Date.now() - hiddenAt > 10 * 60 * 1000) refreshNotifications();
+});
 window.addEventListener('keydown', (e) => {
     const typing = e.target.closest?.('input, select, textarea, [contenteditable]') || document.querySelector('dialog[open]');
     if (!typing && main && e.key === 'n' && !e.ctrlKey && !e.metaKey && !e.altKey) {

@@ -6,8 +6,8 @@ services:
     container_name: paisatrack-postgres
     environment:
       POSTGRES_DB: ${DB_NAME:-paisatrack}
-      POSTGRES_USER: ${DB_USERNAME:-paisatrack}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-paisatrack_local}
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
     ports:
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:

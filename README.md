@@ -3,9 +3,10 @@
 A personal finance, daily expense and money management API. It is built as a
 modular Spring Boot monolith on PostgreSQL.
 
-> **Status:** Phases 1-5 are complete: foundation and security; accounts,
+> **Status:** Phases 1-6 are complete: foundation and security; accounts,
 > categories and transactions; salary, budgets and the dashboard; lending and
-> borrowing; loans and EMIs. Savings goals come next, in Phase 6.
+> borrowing; loans and EMIs; recurring transactions and notifications. Reports
+> and analytics come next, in Phase 7.
 > Design decisions are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Tech stack
@@ -85,8 +86,9 @@ curl -s localhost:8080/api/v1/users/me -H "Authorization: Bearer <accessToken fr
 
 | Profile | Purpose |
 |---|---|
-| `dev` (default) | Your own machine (`application-dev.yml`). Compose database (or the embedded one via `LocalDevApplication`), Swagger on, readable one-line console logs, CORS for `localhost:3000`/`5173`, random JWT key allowed, slow-request warning at 500 ms. |
-| `prod` | Production (`application-prod.yml`). Every secret from the environment and startup fails if one is missing. JSON (ECS) logs with service name, version and environment; optional rotating log file. Tuned connection pool, graceful shutdown, response compression, forwarded headers, Swagger off. |
+| `dev` (default) | Your own machine (`application-dev.yml`). Compose database (or the embedded one via `LocalDevApplication`), Swagger on, coloured console logs plus a rolling `logs/paisatrack.log`, CORS for `localhost:3000`/`5173`, random JWT key allowed, slow-request warning at 500 ms. |
+| `prod` | Production (`application-prod.yml`). Every secret from the environment and startup fails if one is missing. JSON (ECS) logs on stdout with service name, version and environment. Tuned connection pool, graceful shutdown, response compression, forwarded headers, Swagger off. |
+| `logfile` | Add to `prod` (`SPRING_PROFILES_ACTIVE=prod,logfile`) to also write a rotating JSON log file. |
 | `test` | Automated tests (`src/test/resources/application-test.yml`). The test harness provides the database. |
 
 `application.yml` holds only what every environment shares.
@@ -102,7 +104,9 @@ Environment variables:
 | `SWAGGER_ENABLED` | no | `true` exposes the API docs in prod (default `false`) |
 | `DB_POOL_MAX_SIZE`, `DB_POOL_MIN_IDLE` | no | Hikari pool sizing (defaults 10 and 2) |
 | `PORT` | no | HTTP port in prod (default 8080) |
-| `LOG_FILE` | no | Also write JSON logs to this rotating file (50 MB × 14) |
+| `APP_PUBLIC_URL` | no | Public address (e.g. `https://paisatrack.example.com`), shown in the startup summary |
+| `LOG_FILE` | no | Log file path for dev, or for prod with the `logfile` profile (defaults `logs/paisatrack.log` / `logs/paisatrack.json`; prod rotates at 50 MB × 14) |
+| `BANNER_MODE` | no | Prod banner: `off` (default, keeps stdout pure JSON) or `console` |
 | `APP_ENVIRONMENT` | no | `service.environment` in logs (default `production`) |
 | `SLOW_REQUEST_THRESHOLD` | no | Requests at least this slow log at WARN (default `2s`) |
 | `SPRING_PROFILES_ACTIVE` | prod | Set to `prod` |
@@ -112,12 +116,38 @@ Other settings live under `paisatrack.*` in `application.yml`:
 - token lifetimes: 15 minutes for access tokens, 30 days for refresh tokens
 - auth rate limit: 10 requests per minute, per IP and endpoint
 - refresh-token cleanup: schedule and retention
+- recurring generation and reminder checks: hourly (`paisatrack.recurring.generation-cron`, `paisatrack.notifications.cron`)
 
-### Logging
+### Logging and startup
+
+Logback is configured in `src/main/resources/logback-spring.xml`, per profile:
+
+| Profile | Console | File |
+|---|---|---|
+| `dev` | coloured, one line per event | `logs/paisatrack.log`, full timestamp, request and user id, async, rolls at 10 MB, 7 days kept |
+| `prod` | ECS JSON | with `logfile`: ECS JSON, async, 50 MB × 14 |
+| others (tests) | plain | none |
+
+On start the app prints a banner (`banner.txt`) and, once ready, a summary:
+
+```
+PaisaTrack ready: paisatrack 0.1.0-SNAPSHOT
+------------------------------------------------------------
+  Profile    dev
+  Local      http://localhost:8080/
+  Network    http://192.168.1.20:8080/
+  Web app    http://localhost:8080/app/
+  API docs   http://localhost:8080/swagger-ui.html
+  Health     http://localhost:8080/actuator/health
+  Public     https://paisatrack.example.com/app/     (APP_PUBLIC_URL)
+  Database   localhost:5432/paisatrack
+------------------------------------------------------------
+```
 
 - Dev: `12:04:31.218  INFO [3f9a1c0d7e2b4a61] UserService : Login succeeded userId=…`. The bracket is the request id, also returned as `X-Request-Id`.
 - One access line per request: `GET /api/v1/dashboard 200 31ms`. Server errors and slow requests are logged at WARN; health checks and static files at DEBUG.
-- Prod: one JSON object per line. `requestId` and the signed-in `userId` are separate fields, so you can filter a single request or user.
+- Prod: one JSON object per line. `requestId` and the signed-in `userId` are separate fields, so you can filter a single request or user. The access line carries both.
+- Scheduled jobs log one summary each run: `Job recurring-generation done users=12 created=40 failed=0 took=85ms`. A user that fails is logged at WARN and the rest continue.
 - Never logged: passwords, tokens, request bodies, query strings, or amounts tied to a person.
 
 ## API
@@ -219,6 +249,32 @@ principal only reduces the loan. Outstanding principal is a liability in net wor
 | GET | `/loans/summary?days=30` | Outstanding, monthly EMI, principal and interest paid this year, per currency |
 | GET | `/emis/upcoming?days=30` | EMIs missed or due soon across all loans |
 
+**Recurring transactions** (all bearer). Rent, bills, subscriptions, SIPs and other repeated expenses, income or
+transfers. Occurrences are generated ahead as plans; nothing reaches balances or totals until you confirm one. Salary
+and EMIs are tracked by income sources and loans, not here.
+
+| Method | Path | Description |
+|---|---|---|
+| GET, POST | `/recurring-transactions` | List (`includeStopped=`) or add a rule: type, kind, amount, account(s), category, frequency (DAILY to YEARLY) and interval, start and end dates |
+| GET, PATCH, DELETE | `/recurring-transactions/{id}` | One rule; edit (amount and schedule apply from today); delete (only if never confirmed) |
+| POST | `/recurring-transactions/{id}/pause`, `/resume`, `/stop` | Pause (future dates dropped), resume from today, stop for good |
+| GET | `/recurring-transactions/{id}/occurrences`, `/history` | Every date with its status; audit trail |
+| GET | `/recurring-transactions/summary?days=30` | Still expected: overdue plus due soon, with per-currency outflow and inflow |
+| GET | `/recurring-occurrences?from=&to=&status=` | Occurrences of all rules in a range: UPCOMING, DUE, OVERDUE, CONFIRMED, SKIPPED |
+| POST | `/recurring-occurrences/{id}/confirm` | Record the actual expense, income or transfer (amount, date, account optional) |
+| POST | `/recurring-occurrences/{id}/skip`, `/reopen` | Skip it; undo a confirm (its transaction is voided) or a skip |
+
+**Notifications** (all bearer). In-app reminders for EMIs, bills, subscriptions, recurring items, lending, borrowing,
+budget thresholds and expected salary. Checked hourly in each user's timezone; one notification per item and stage.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/notifications?unreadOnly=&page=&size=` | History, newest first |
+| GET | `/notifications/unread-count` | Unread count |
+| POST | `/notifications/{id}/read`, `/notifications/read-all` | Mark read |
+| POST | `/notifications/refresh` | Check for due reminders now (never duplicates) |
+| GET, PUT | `/notifications/preferences` | Per type: on/off and days before (0-30, default 3) |
+
 Ledger entries a loan creates (`LOAN_DISBURSEMENT`, `LOAN_PRINCIPAL` and the interest expense) carry `loanId`
 and can only be changed through the loan.
 
@@ -261,12 +317,15 @@ src/main/java/com/paisatrack/
     <module>/            entities, repositories, services (internals package-private)
     <module>/dto/        request and response records
     <module>/web/        REST controllers
-    auth, user, account, category, transaction, income, budget, people, debt, loan, dashboard
+    auth, user, account, category, transaction, income, budget, people, debt, loan, recurring,
+                         notification, dashboard
 src/main/resources/
   application.yml               shared settings
   application-dev.yml           local development (default)
   application-prod.yml          production
-  db/migration/                 Flyway migrations (V1 … V10)
+  db/migration/                 Flyway migrations (V1 … V11)
+  logback-spring.xml            logging per profile
+  banner.txt                    startup banner
   static/app/                   web app: index.html, css/, js/ (ES modules, no build step)
 src/test/java/com/paisatrack/   same layout as main, plus support/ and LocalDevApplication
 ```
@@ -279,11 +338,16 @@ inserted as text.
 
 - **Overview:** spending today, this week and this month; net cash flow and
   savings rate; daily spending and category donut charts; budgets with alerts;
-  expected income, with a one-click **Record** for anything due; accounts and
-  net worth (less loans outstanding); EMIs missed or due; a 6-month trend; recent activity. Date presets: this month, last
-  month, 30 days, custom.
+  upcoming bills with one-tap **Paid**; expected income with **Record**; accounts
+  and net worth (less loans outstanding); EMIs missed or due; a 6-month trend;
+  recent activity. Date presets: this month, last month, 30 days, custom.
 - **Transactions:** search, filter by type, category, account and dates; grouped
-  by day with daily totals; delete (void) and restore; paging.
+  by day with daily totals; click a row to edit it; delete (void) and restore; paging.
+- **Bills & recurring:** what is due or overdue with **Paid / Received** (actual
+  amount, date and account) and **Skip**; each rule opens its dates, edit, pause,
+  resume, stop, delete and undo.
+- **Notifications:** a bell with an unread badge opens reminders; each links to its page.
+- **Settings:** profile, currency, timezone, week start, theme, reminder preferences, password.
 - **Loans:** outstanding, monthly EMI and interest this year; EMIs missed or due
   with one-click **Pay**; each loan opens its schedule, payments, **Pay EMI**,
   **Prepay**, void-latest and delete. Adding a loan shows a live EMI preview.
@@ -293,5 +357,7 @@ inserted as text.
 - **Add:** one dialog for expense, income or transfer, plus dialogs for budgets,
   accounts and income sources. Errors show next to the field. A double submit
   never creates two entries.
-- Light and dark themes, a sidebar on desktop and a bottom tab bar on phones.
+- Light and dark themes. Desktop: grouped sidebar with quick add. Phones: bottom
+  tab bar (Home, Activity, Bills, Loans, More), bottom-sheet dialogs with the
+  save button always in view, 44 px touch targets. Amounts accept `1,00,000`.
   Press `n` anywhere to add a transaction.

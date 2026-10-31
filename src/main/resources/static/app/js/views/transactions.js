@@ -10,6 +10,7 @@ import { store } from '../store.js';
 const PAGE_SIZE = 25;
 const filters = { q: '', type: '', categoryId: '', accountId: '', from: '', to: '', includeVoided: false, page: 0 };
 let searchTimer;
+let loadSeq = 0;
 
 export async function renderTransactions(root) {
     const [accounts, expenseCats, incomeCats] = await Promise.all([
@@ -59,6 +60,7 @@ export async function renderTransactions(root) {
 }
 
 async function loadPage(list) {
+    const seq = ++loadSeq; // a slower, older request must not overwrite newer results
     fill(list, [1, 2, 3, 4, 5].map(() => el('div', { class: 'row' }, skeleton(36, '36px'), el('div', { class: 'grow' }, skeleton(14, '50%')), skeleton(14, '80px'))));
     const params = new URLSearchParams({ page: filters.page, size: PAGE_SIZE });
     for (const key of ['q', 'type', 'categoryId', 'accountId', 'from', 'to']) {
@@ -70,9 +72,10 @@ async function loadPage(list) {
     try {
         page = await api.get(`/transactions?${params}`);
     } catch (e) {
-        fill(list, empty(errorText(e), 'alert'));
+        if (seq === loadSeq) fill(list, empty(errorText(e), 'alert'));
         return;
     }
+    if (seq !== loadSeq) return;
     if (!page.items.length) {
         fill(list, empty(filters.q || filters.type || filters.categoryId || filters.accountId || filters.from || filters.to
             ? 'No transactions match these filters.' : 'No transactions yet.', 'inbox'));
@@ -97,7 +100,9 @@ async function loadPage(list) {
             return el('div', {},
                 el('div', { class: 'day-head' }, el('span', { text: dayHeading(g.date) }),
                     spent.length ? el('span', { class: 'num', text: `Spent ${money(daySpend, currency)}` }) : null),
-                el('div', { class: 'rows' }, g.items.map((t) => txRow(t, rowAction(t, reload)))));
+                el('div', { class: 'rows' }, g.items.map((t) => txRow(t, rowAction(t, reload),
+                    t.status === 'ACTIVE' && !t.loanId ? (tx) => openTransactionDialog({ existing: tx, onSaved: reload })
+                        .catch((e) => toast(errorText(e), 'error')) : null))));
         }),
         el('div', { class: 'pager' },
             el('span', { text: `Showing ${first}–${lastIndex} of ${page.totalItems}` }),

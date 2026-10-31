@@ -45,6 +45,7 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
         } finally {
             logAccess(request, response.getStatus(), (System.nanoTime() - start) / 1_000_000);
             MDC.remove(RequestCorrelation.MDC_KEY);
+            MDC.remove(RequestCorrelation.USER_MDC_KEY);
         }
     }
 

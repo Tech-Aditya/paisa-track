@@ -11,5 +11,10 @@ public enum AuditAction {
     REPAID,
     REPAYMENT_VOIDED,
     WRITTEN_OFF,
-    REOPENED
+    REOPENED,
+    PAUSED,
+    RESUMED,
+    STOPPED,
+    CONFIRMED,
+    SKIPPED
 }

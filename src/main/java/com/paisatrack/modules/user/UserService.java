@@ -1,6 +1,7 @@
 package com.paisatrack.modules.user;
 
 import java.time.Clock;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -98,6 +99,12 @@ public class UserService {
         User user = userRepository.findById(userId).orElseThrow(() -> new ResourceNotFoundException("User"));
         requireActive(user);
         return user;
+    }
+
+    /** Ids of every active user, for scheduled jobs. */
+    @Transactional(readOnly = true)
+    public List<UUID> activeUserIds() {
+        return userRepository.findActiveIds();
     }
 
     /** Non-throwing check; won't mark the caller's transaction rollback-only. */

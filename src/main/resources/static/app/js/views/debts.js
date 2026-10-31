@@ -3,7 +3,7 @@
 import { api, errorText } from '../api.js';
 import { kpi } from '../components.js';
 import { el, empty, field, fill, icon, input, openPanel, openSheet, segmented, select, skeleton, toast } from '../dom.js';
-import { initials, money, plural, shortDate, titleCase } from '../format.js';
+import { initials, money, parseAmount, plural, shortDate, titleCase } from '../format.js';
 import { store } from '../store.js';
 
 const PATH = { LENT: '/lending', BORROWED: '/borrowing' };
@@ -113,7 +113,7 @@ export async function openDebtDialog({ direction: initial = 'LENT', onSaved }) {
         submit: async (form) => {
             const v = (n) => form.elements.namedItem(n).value.trim() || null;
             await api.post(PATH[dir], {
-                personName: v('personName'), amount: v('amount'), currency: v('currency')?.toUpperCase(),
+                personName: v('personName'), amount: parseAmount(v('amount')), currency: v('currency')?.toUpperCase(),
                 startDate: v('startDate'), dueDate: v('dueDate'), paymentMethod: v('paymentMethod'), description: v('description'),
             }, { 'Idempotency-Key': key });
             store.invalidate('people');
@@ -223,7 +223,7 @@ function openRepaymentDialog(d, onSaved) {
         submit: async (form) => {
             const v = (n) => form.elements.namedItem(n).value.trim() || null;
             await api.post(`${PATH[d.direction]}/${d.id}/repayments`, {
-                amount: v('amount'), repaymentDate: v('repaymentDate'), paymentMethod: v('paymentMethod'), notes: v('notes'),
+                amount: parseAmount(v('amount')), repaymentDate: v('repaymentDate'), paymentMethod: v('paymentMethod'), notes: v('notes'),
             }, { 'Idempotency-Key': key });
             onSaved();
         },

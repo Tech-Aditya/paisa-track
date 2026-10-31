@@ -2,81 +2,122 @@
 
 import { api } from './api.js';
 import { el, field, input, openSheet, segmented, select, toast } from './dom.js';
-import { isoDate, titleCase } from './format.js';
+import { isoDate, parseAmount, titleCase } from './format.js';
 import { accountOptions, categoryOptions, store } from './store.js';
 
 const value = (form, name) => {
     const v = form.elements.namedItem(name)?.value?.trim();
     return v === '' || v === undefined ? null : v;
 };
+const amount = (form, name) => parseAmount(value(form, name));
 
-/** Expense, income or transfer. `preset` can fix the type and prefill fields (e.g. a salary receipt). */
-export async function openTransactionDialog({ type = 'EXPENSE', preset = {}, onSaved }) {
+/** Account choices, keeping an account the entry already uses even if it is now deactivated. */
+function accountChoices(accounts, selectedId, keep) {
+    const list = keep && !accounts.some((a) => a.id === keep.id)
+        ? [...accounts, { id: keep.id, name: `${keep.name} (inactive)`, currency: '' }] : accounts;
+    return accountOptions(list, selectedId);
+}
+
+const PATHS = { EXPENSE: '/expenses', INCOME: '/income', TRANSFER: '/transfers' };
+
+/**
+ * Expense, income or transfer. `preset` can fix the type and prefill fields (e.g. a salary receipt).
+ * Pass `existing` (a transaction) to edit it instead; its type can't change.
+ */
+export async function openTransactionDialog({ type = 'EXPENSE', preset = {}, existing = null, onSaved }) {
     const [accounts, expenseCats, incomeCats, sources] = await Promise.all([
         store.accounts(), store.expenseCategories(), store.incomeCategories(), store.incomeSources(),
     ]);
-    let current = type;
+    const editing = Boolean(existing);
+    let current = existing?.type ?? type;
     const idempotencyKey = crypto.randomUUID(); // one per dialog: a double submit creates one record
     const today = preset.today ?? isoDate(new Date());
+    const p = existing ? {
+        amount: existing.amount, date: existing.transactionDate, categoryId: existing.category?.id, accountId: existing.account?.id,
+        toAccountId: existing.toAccount?.id, description: existing.description, counterparty: existing.counterparty,
+        incomeSourceId: existing.incomeSource?.id, periodMonth: existing.incomePeriod, notes: existing.notes,
+    } : preset;
 
     const sheet = openSheet({
-        title: 'New transaction',
-        submitLabel: 'Save',
-        fields: (form) => {
-            const typeSwitch = segmented(
+        title: editing ? `Edit ${current === 'TRANSFER' ? 'transfer' : current.toLowerCase()}` : 'New transaction',
+        submitLabel: editing ? 'Save changes' : 'Save',
+        danger: editing ? {
+            label: 'Delete',
+            action: async () => {
+                if (!window.confirm('Delete this transaction? It is removed from balances and totals, and can be restored later.')) return false;
+                await api.post(`/transactions/${existing.id}/void`);
+                store.invalidate('accounts');
+                toast('Transaction deleted');
+                onSaved?.();
+                return true;
+            },
+        } : null,
+        fields: () => {
+            const typeSwitch = editing ? null : segmented(
                 [{ value: 'EXPENSE', label: 'Expense' }, { value: 'INCOME', label: 'Income' }, { value: 'TRANSFER', label: 'Transfer' }],
                 current, (next) => { current = next; sheet.render(); }, 'Transaction type');
-            const amount = field('Amount', input('amount', {
+            const amountField = field('Amount', input('amount', {
                 class: 'input amount', inputmode: 'decimal', autocomplete: 'off', placeholder: '0.00',
-                required: true, value: preset.amount ?? '',
+                required: true, value: p.amount ?? '',
             }));
-            const date = field('Date', input('transactionDate', { type: 'date', value: preset.date ?? today, max: today }));
-            const note = () => field('Description', input('description', { maxlength: 200, placeholder: 'Optional' }), { span: true });
+            const date = field('Date', input('transactionDate', { type: 'date', value: p.date ?? today, max: today }));
+            const note = () => field('Description', input('description', { maxlength: 200, placeholder: 'Optional', value: p.description ?? '' }), { span: true });
 
             if (current === 'TRANSFER') {
-                return [typeSwitch, amount, el('div', { class: 'form-grid' },
-                    field('From account', select('fromAccountId', accountOptions(accounts))),
-                    field('To account', select('toAccountId', accountOptions(accounts, accounts.find((a) => !a.defaultAccount)?.id))),
+                return [typeSwitch, amountField, el('div', { class: 'form-grid' },
+                    field('From account', select('fromAccountId', accountChoices(accounts, p.accountId, existing?.account))),
+                    field('To account', select('toAccountId', accountChoices(accounts,
+                        p.toAccountId ?? accounts.find((a) => !a.defaultAccount)?.id, existing?.toAccount))),
                     date, note()),
                 el('p', { class: 'faint', text: 'Transfers move money between your own accounts. They are never income or spending — use one to pay a credit card bill.' })];
             }
             if (current === 'INCOME') {
                 const sourceSel = select('incomeSourceId', [{ value: '', label: 'None' },
-                    ...sources.map((s) => ({ value: s.id, label: s.name, selected: s.id === preset.incomeSourceId }))]);
-                return [typeSwitch, amount, el('div', { class: 'form-grid' },
+                    ...sources.map((s) => ({ value: s.id, label: s.name, selected: s.id === p.incomeSourceId }))]);
+                const accountSel = editing
+                    ? select('accountId', accountChoices(accounts, p.accountId, existing.account))
+                    : select('accountId', [{ value: '', label: 'Source / default account' }, ...accountOptions(accounts, '__none')]);
+                return [typeSwitch, amountField, el('div', { class: 'form-grid' },
                     field('Income source', sourceSel),
-                    field('Category', select('categoryId', [{ value: '', label: 'From income source' }, ...categoryOptions(incomeCats)])),
-                    field('Into account', select('accountId', [{ value: '', label: 'Source / default account' }, ...accountOptions(accounts, '__none')])),
-                    field('For month', input('periodMonth', { type: 'month', value: preset.periodMonth ?? '' })),
+                    field('Category', select('categoryId', [{ value: '', label: 'From income source' }, ...categoryOptions(incomeCats, p.categoryId)])),
+                    field('Into account', accountSel),
+                    field('For month', input('periodMonth', { type: 'month', value: p.periodMonth ?? '' })),
                     date,
-                    field('Payer', input('payer', { maxlength: 100, placeholder: 'Optional' })),
+                    field('Payer', input('payer', { maxlength: 100, placeholder: 'Optional', value: p.counterparty ?? '' })),
                     note())];
             }
-            return [typeSwitch, amount, el('div', { class: 'form-grid' },
-                field('Category', select('categoryId', [{ value: '', label: 'Choose a category' }, ...categoryOptions(expenseCats)], { required: true }), { span: true }),
-                field('Paid from', select('accountId', accountOptions(accounts))),
+            return [typeSwitch, amountField, el('div', { class: 'form-grid' },
+                field('Category', select('categoryId', [{ value: '', label: 'Choose a category' }, ...categoryOptions(expenseCats, p.categoryId)], { required: true }), { span: true }),
+                field('Paid from', select('accountId', accountChoices(accounts, p.accountId, existing?.account))),
                 date,
-                field('Merchant', input('merchant', { maxlength: 100, placeholder: 'Optional' })),
-                field('Description', input('description', { maxlength: 200, placeholder: 'Optional' })))];
+                field('Merchant', input('merchant', { maxlength: 100, placeholder: 'Optional', value: p.counterparty ?? '' })),
+                field('Description', input('description', { maxlength: 200, placeholder: 'Optional', value: p.description ?? '' })))];
         },
         submit: async (form) => {
-            const common = { amount: value(form, 'amount'), transactionDate: value(form, 'transactionDate'), description: value(form, 'description') };
-            const headers = { 'Idempotency-Key': idempotencyKey };
+            const common = {
+                amount: amount(form, 'amount'), transactionDate: value(form, 'transactionDate'), description: value(form, 'description'),
+                notes: p.notes ?? null, transactionTime: existing?.transactionTime ?? null,
+            };
+            if (existing?.paymentMethod && current !== 'TRANSFER') common.paymentMethod = existing.paymentMethod;
+            let body;
             if (current === 'TRANSFER') {
-                await api.post('/transfers', { ...common, fromAccountId: value(form, 'fromAccountId'), toAccountId: value(form, 'toAccountId') }, headers);
+                body = { ...common, fromAccountId: value(form, 'fromAccountId'), toAccountId: value(form, 'toAccountId') };
             } else if (current === 'INCOME') {
-                await api.post('/income', {
+                body = {
                     ...common, incomeSourceId: value(form, 'incomeSourceId'), categoryId: value(form, 'categoryId'),
                     accountId: value(form, 'accountId'), periodMonth: value(form, 'incomeSourceId') ? value(form, 'periodMonth') : null,
                     payer: value(form, 'payer'),
-                }, headers);
+                };
             } else {
-                await api.post('/expenses', {
-                    ...common, categoryId: value(form, 'categoryId'), accountId: value(form, 'accountId'), merchant: value(form, 'merchant'),
-                }, headers);
+                body = { ...common, categoryId: value(form, 'categoryId'), accountId: value(form, 'accountId'), merchant: value(form, 'merchant') };
+            }
+            if (editing) {
+                await api.put(`${PATHS[current]}/${existing.id}`, body);
+            } else {
+                await api.post(PATHS[current], body, { 'Idempotency-Key': idempotencyKey });
             }
             store.invalidate('accounts', 'sources');
-            toast(`${titleCase(current)} saved`);
+            toast(editing ? 'Changes saved' : `${titleCase(current)} saved`);
             onSaved?.();
         },
     });
@@ -105,7 +146,7 @@ export async function openBudgetDialog({ onSaved }) {
         ],
         submit: async (form) => {
             await api.post('/budgets', {
-                scope, period, amount: value(form, 'amount'), name: value(form, 'name'),
+                scope, period, amount: amount(form, 'amount'), name: value(form, 'name'),
                 categoryId: scope === 'CATEGORY' ? value(form, 'categoryId') : null,
                 startDate: period === 'CUSTOM' ? value(form, 'startDate') : null,
                 endDate: period === 'CUSTOM' ? value(form, 'endDate') : null,
@@ -138,7 +179,7 @@ export async function openAccountDialog({ onSaved }) {
         submit: async (form) => {
             await api.post('/accounts', {
                 name: value(form, 'name'), type, currency: value(form, 'currency')?.toUpperCase(),
-                openingBalance: value(form, 'openingBalance'), creditLimit: value(form, 'creditLimit'),
+                openingBalance: amount(form, 'openingBalance'), creditLimit: amount(form, 'creditLimit'),
                 institution: value(form, 'institution'), accountLast4: value(form, 'accountLast4'),
             });
             store.invalidate('accounts');
@@ -165,7 +206,7 @@ export async function openIncomeSourceDialog({ onSaved }) {
             el('p', { class: 'faint', text: 'Expected amounts are plans only. Income counts once you record it as received.' }),
         ],
         submit: async (form) => {
-            const expectedAmount = value(form, 'expectedAmount');
+            const expectedAmount = amount(form, 'expectedAmount');
             await api.post('/income-sources', {
                 name: value(form, 'name'), type: value(form, 'type'), accountId: value(form, 'accountId'),
                 expectedAmount, expectedDay: expectedAmount ? Number(value(form, 'expectedDay') ?? 1) : null,

@@ -13,11 +13,22 @@ export function txTitle(t) {
     return t.category.parentName ? `${t.category.parentName} · ${t.category.name}` : t.category.name;
 }
 
-export function txRow(t, actions = null) {
+/** One transaction. With `onOpen`, the row is clickable (and keyboard-activatable). */
+export function txRow(t, actions = null, onOpen = null) {
     const sign = ['EXPENSE', 'LOAN_PRINCIPAL'].includes(t.type) ? '−' : ['INCOME', 'LOAN_DISBURSEMENT'].includes(t.type) ? '+' : '';
     const meta = [t.description || t.counterparty, t.type === 'TRANSFER' ? 'Transfer' : t.account?.name, t.incomeSource?.name]
         .filter(Boolean).join(' · ');
-    return el('div', { class: `row ${t.status === 'VOIDED' ? 'voided' : ''}` },
+    const open = onOpen ? (e) => {
+        if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+        if (e.target.closest('button, a')) return;
+        e.preventDefault();
+        onOpen(t);
+    } : null;
+    return el('div', {
+        class: `row ${t.status === 'VOIDED' ? 'voided' : ''} ${onOpen ? 'clickable' : ''}`.trim(),
+        role: onOpen ? 'button' : null, tabindex: onOpen ? '0' : null, onclick: open, onkeydown: open,
+        'aria-label': onOpen ? `Edit ${txTitle(t)}` : null,
+    },
         el('div', { class: `tile-icon ${t.loanId ? 'loan' : t.type.toLowerCase()}` }, icon(TYPE_ICON[t.type])),
         el('div', { class: 'grow' },
             el('div', { class: 'title', text: txTitle(t) }),

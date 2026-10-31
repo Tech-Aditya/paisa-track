@@ -30,6 +30,8 @@ Modules depend on platform, never the reverse.
 | `people` | Contacts you lend to or borrow from |
 | `debt` | Money lent and borrowed, repayments, write-offs, overdue status, reminders |
 | `loan` | Formal loans, EMI schedules (amortization), EMI payments, prepayments, upcoming/missed EMIs |
+| `recurring` | Recurring rules (rent, bills, subscriptions, SIPs), expected occurrences, confirm/skip, generation job |
+| `notification` | In-app reminders from every module, read state, per-type preferences, reminder job |
 | `dashboard` | Read-only home-screen aggregates |
 
 | Platform (`platform.*`) | Responsibility |
@@ -45,6 +47,7 @@ Modules depend on platform, never the reverse.
 
 Dependencies point one way: `auth → user`, `transaction → income, account, category, user`,
 `budget → transaction`, `debt → people, user`, `loan → transaction, account, category`,
+`recurring → transaction, account, category`, `notification → loan, recurring, debt, budget, income, user`,
 `dashboard → everything it summarises`. Every module may use `platform`.
 The `user` module never calls `auth`. When a password changes, `user`
 publishes a `PasswordChangedEvent`. `auth` handles it in the same database
@@ -58,11 +61,12 @@ higher module implements: `AccountFlowProvider` (net flows for balances),
 so no two services depend on each other. `people` defines `PersonUsageProvider`, which `debt` implements.
 `account` defines `LiabilityProvider` (outstanding loan principal for net worth), which `loan` implements
 alongside `CategoryUsageProvider` (a loan's interest category can't be deleted).
+`transaction` publishes `TransactionChangedEvent` (edited, voided, restored) inside the database transaction;
+`recurring` listens so a confirmed occurrence follows its transaction without `transaction` depending on it.
 On registration, `UserRegisteredEvent` seeds a default Cash account and the
 default categories in the same transaction.
 
-Planned modules are
-`goal`, `recurring`, `report`, `currency`, `notification` and `attachment`. Each will
+Planned modules are `report`, `currency` and `attachment`. Each will
 follow the same layout.
 
 ## API conventions
@@ -262,6 +266,40 @@ Decisions confirmed with the product owner:
   partial unique index stops two active payments for one installment. Creates and payments
   accept `Idempotency-Key`.
 
+## Recurring transactions and notifications (Phase 6)
+
+Decisions confirmed with the product owner:
+
+- **Confirm only.** A due date creates an expected occurrence and a reminder, never a transaction.
+  Confirming records a normal expense, income or transfer (actual amount, date and account may
+  differ from the plan); skipping says it didn't happen. Expected occurrences never appear in
+  balances, totals, budgets or reports.
+- **Scope.** Rules cover expenses, income and transfers such as rent, bills, subscriptions,
+  insurance and SIPs. Salary stays in income sources and EMIs in loans, so nothing is expected twice.
+- **Overdue stays overdue** until confirmed or skipped. Later dates keep being generated.
+- **Reminders** have per-type preferences (on/off, 0-30 days before, default 3). An item gets at
+  most one notification per stage: UPCOMING (inside the window), DUE, OVERDUE; budgets get one
+  ALERT per period for the highest threshold reached (and one when exceeded).
+
+How it works:
+
+- **Schedules are anchored on the start date** (`start + n × interval`), so a rule starting on the
+  31st falls on the last day of shorter months without drifting. Frequencies: daily, weekly,
+  monthly, quarterly, yearly, each with an interval (e.g. every 2 weeks).
+- **Generation is idempotent.** Occurrences are generated up to 35 days ahead, from the day a rule is
+  added or resumed (no back-fill). `UNIQUE (rule_id, due_date)` plus `insert ... on conflict do
+  nothing` and a row lock on the user's active rules mean retries, restarts and parallel runs never
+  duplicate. Editing the amount, accounts or schedule, pausing or stopping drops expected dates from
+  today on and regenerates them; overdue ones are kept.
+- **Confirmation** locks the occurrence row, so parallel confirms record one transaction; it also
+  accepts `Idempotency-Key`. If the user later voids that transaction from the ledger, the
+  occurrence becomes expected again (and confirmed again if the transaction is restored). Reopening
+  an occurrence voids its transaction.
+- **Notifications** are built from the owning modules' read APIs and stored with a dedupe key
+  (`user_id, dedupe_key` unique, insert on conflict do nothing). The hourly job runs per user in
+  their own timezone and own transaction; a failure is logged and the rest continue. The web app
+  also triggers a check on start.
+
 ## Observability
 
 - Every request gets an `X-Request-Id`. A safe id sent by the client is
@@ -276,7 +314,16 @@ Decisions confirmed with the product owner:
   pattern shows only the request id, to keep lines short.
 - A single `PaisaTrack ready` line at startup gives the profile, port, database host
   (no credentials) and whether API docs are on.
-- Scheduled jobs log their outcome and duration (`Job refresh-token-cleanup done`).
+- Scheduled jobs log their outcome and duration (`Job refresh-token-cleanup done`,
+  `Job recurring-generation done users=… created=… failed=…`). Per-user failures are WARN lines with
+  the user id and error type.
+- Logback is set up in `logback-spring.xml`: dev writes a readable console and an async rolling file
+  (`logs/paisatrack.log`, with request and user ids); prod writes ECS JSON to stdout, plus an async
+  rolling JSON file with the `logfile` profile. The user id stays in the MDC until the access line
+  is written, so every access line names its user.
+- A banner and a startup summary (profile, local/network/web/docs/health URLs, public URL from
+  `APP_PUBLIC_URL`, database host) are printed once the app is ready. The prod banner is off by
+  default so stdout stays pure JSON.
 
 ## Known trade-offs
 
@@ -300,5 +347,10 @@ Decisions confirmed with the product owner:
   and void.
 - **Assets bought with a loan aren't tracked** (no house or car value yet), so a home loan
   without a disbursement account makes net worth negative.
+- **Reminders are in-app only.** Email/push delivery can hang off the notifications table later.
+- **The notification job visits every active user hourly.** Fine for thousands of users; beyond that,
+  shard by user or keep a "next reminder at" per user.
+- **Recurring amounts are fixed per rule.** Variable bills are handled at confirmation (the actual
+  amount), not with estimates.
 - **Forgot/reset password** needs an email provider. It is deferred to the
   notifications phase.
