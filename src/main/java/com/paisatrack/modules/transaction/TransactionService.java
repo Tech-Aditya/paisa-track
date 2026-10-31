@@ -3,8 +3,10 @@ package com.paisatrack.modules.transaction;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.Instant;
 import java.time.LocalTime;
 import java.time.YearMonth;
+import java.util.Collection;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
@@ -13,6 +15,7 @@ import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.paisatrack.modules.account.AccountRef;
@@ -110,6 +113,7 @@ public class TransactionService {
     @Transactional
     public TransactionResponse voidTransaction(UUID userId, UUID transactionId, String reason) {
         Transaction transaction = queries.load(userId, transactionId);
+        requireNotLoanManaged(transaction);
         if (!transaction.isVoided()) {
             String cleanReason = clean(reason);
             transaction.markVoided(clock.instant(), cleanReason);
@@ -125,6 +129,7 @@ public class TransactionService {
     @Transactional
     public TransactionResponse restore(UUID userId, UUID transactionId) {
         Transaction transaction = queries.load(userId, transactionId);
+        requireNotLoanManaged(transaction);
         if (transaction.isVoided()) {
             accounts.requireForTransaction(userId, transaction.getAccountId(), "accountId", null);
             if (transaction.getToAccountId() != null) {
@@ -141,6 +146,55 @@ public class TransactionService {
         return queries.get(userId, transactionId);
     }
 
+    // ---- API for the loan module ----
+
+    /** A ledger entry created by a loan. */
+    public record LoanMovement(TransactionType type, UUID loanId, UUID accountId, String currency, BigDecimal amount,
+                               LocalDate date, UUID categoryId, String description, String counterparty) {
+    }
+
+    /**
+     * Posts a loan disbursement, EMI principal or EMI interest (an EXPENSE with the loan's interest
+     * category). Runs in the caller's transaction; returns the new transaction id.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public UUID recordLoanMovement(UUID userId, LoanMovement m) {
+        AccountRef account = accounts.requireForTransaction(userId, m.accountId(), "accountId", null);
+        if (!account.currency().equals(m.currency())) {
+            throw new ApiException(ErrorCode.CURRENCY_MISMATCH,
+                    "Account '" + account.name() + "' uses " + account.currency() + ", the loan uses " + m.currency());
+        }
+        MoneyRules.requireValidAmount("amount", m.amount(), m.currency());
+        Transaction transaction = repository.saveAndFlush(new Transaction(userId, m.type(), new TransactionDetails(
+                m.amount(), m.currency(), account.id(), null, m.categoryId(), m.date(), null,
+                clean(m.description()), clean(m.counterparty()), null, null, null, null, m.loanId())));
+        audit.record(userId, AUDIT_ENTITY, transaction.getId(), AuditAction.CREATED,
+                AuditService.diff(Map.of(), transaction.snapshot()));
+        return transaction.getId();
+    }
+
+    /** Voids ledger entries a loan created, e.g. when a loan payment is undone. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void voidLoanTransactions(UUID userId, Collection<UUID> transactionIds, String reason) {
+        Instant now = clock.instant();
+        for (UUID id : transactionIds) {
+            if (id == null) {
+                continue;
+            }
+            Transaction transaction = queries.load(userId, id);
+            if (transaction.getLoanId() != null && !transaction.isVoided()) {
+                transaction.markVoided(now, reason);
+                audit.record(userId, AUDIT_ENTITY, id, AuditAction.VOIDED, reason == null ? null : Map.of("reason", reason));
+            }
+        }
+        repository.flush();
+    }
+
+    private static void requireNotLoanManaged(Transaction transaction) {
+        if (transaction.getLoanId() != null) {
+            throw new ApiException(ErrorCode.LOAN_MANAGED, "This entry belongs to a loan. Change it from the loan instead.");
+        }
+    }
     // ---- create / update skeletons ----
 
     private TransactionResponse create(UUID userId, TransactionType type, Object request, String idempotencyKey,
@@ -158,6 +212,7 @@ public class TransactionService {
     private TransactionResponse update(UUID userId, UUID transactionId, TransactionType type,
                                        Function<Transaction, TransactionDetails> resolve) {
         Transaction transaction = queries.load(userId, transactionId);
+        requireNotLoanManaged(transaction);
         if (transaction.getType() != type) {
             throw new ResourceNotFoundException(type == TransactionType.TRANSFER ? "Transfer" : capitalized(type));
         }
@@ -227,7 +282,7 @@ public class TransactionService {
                 ? entry.paymentMethod() : PaymentMethod.defaultFor(account.type());
         return new TransactionDetails(entry.amount(), currency, account.id(), null, category.id(), date, entry.time(),
                 clean(entry.description()), clean(entry.counterparty()), paymentMethod, clean(entry.notes()),
-                source == null ? null : source.id(), period);
+                source == null ? null : source.id(), period, null);
     }
 
     private TransactionDetails resolveTransfer(UUID userId, TransferRequest request, Transaction current) {
@@ -246,7 +301,7 @@ public class TransactionService {
         MoneyRules.requireValidAmount("amount", request.amount(), currency);
         return new TransactionDetails(request.amount(), currency, from.id(), to.id(), null,
                 resolveDate(userId, request.transactionDate(), current), request.transactionTime(),
-                clean(request.description()), null, null, clean(request.notes()), null, null);
+                clean(request.description()), null, null, clean(request.notes()), null, null, null);
     }
 
     /** Amounts are stored in the account's currency. Conversion arrives with multi-currency support. */

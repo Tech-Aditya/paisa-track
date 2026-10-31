@@ -35,7 +35,7 @@ public class Transaction extends AuditableEntity {
     private UUID userId;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "type", nullable = false, length = 10, updatable = false)
+    @Column(name = "type", nullable = false, length = 20, updatable = false)
     private TransactionType type;
 
     @Enumerated(EnumType.STRING)
@@ -83,6 +83,10 @@ public class Transaction extends AuditableEntity {
     @Column(name = "income_period")
     private LocalDate incomePeriod;
 
+    /** Set on transactions a loan created (disbursement, EMI principal and interest); managed only by the loan. */
+    @Column(name = "loan_id", updatable = false)
+    private UUID loanId;
+
     @Column(name = "voided_at")
     private Instant voidedAt;
 
@@ -113,6 +117,7 @@ public class Transaction extends AuditableEntity {
         this.notes = d.notes();
         this.incomeSourceId = d.incomeSourceId();
         this.incomePeriod = d.incomePeriod();
+        this.loanId = d.loanId();
     }
 
     void markVoided(Instant at, String reason) {
@@ -212,6 +217,10 @@ public class Transaction extends AuditableEntity {
 
     public UUID getIncomeSourceId() {
         return incomeSourceId;
+    }
+
+    public UUID getLoanId() {
+        return loanId;
     }
 
     public LocalDate getIncomePeriod() {

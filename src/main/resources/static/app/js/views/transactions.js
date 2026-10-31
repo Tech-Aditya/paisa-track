@@ -41,6 +41,7 @@ export async function renderTransactions(root) {
         el('label', { class: 'field' }, el('span', { text: 'Type' }), select('type', [
             { value: '', label: 'All types' }, { value: 'EXPENSE', label: 'Expenses' },
             { value: 'INCOME', label: 'Income' }, { value: 'TRANSFER', label: 'Transfers' },
+            { value: 'LOAN_PRINCIPAL', label: 'Loan repayments' }, { value: 'LOAN_DISBURSEMENT', label: 'Loans received' },
         ].map((o) => ({ ...o, selected: o.value === filters.type })), { onchange: set('type') })),
         el('label', { class: 'field' }, el('span', { text: 'Category' }), select('categoryId', [
             { value: '', label: 'All categories' }, topLevel(expenseCats, 'Expense'), topLevel(incomeCats, 'Income'),
@@ -108,6 +109,10 @@ async function loadPage(list) {
 }
 
 function rowAction(t, reload) {
+    if (t.loanId) {
+        // Loan entries change only through the loan (pay, prepay, void).
+        return el('a', { class: 'btn ghost sm icon-only', href: '#/loans', title: 'Managed by a loan', 'aria-label': 'Open loans' }, icon('bank'));
+    }
     const voided = t.status === 'VOIDED';
     return el('button', {
         class: `btn ghost sm icon-only ${voided ? '' : 'danger'}`, type: 'button',

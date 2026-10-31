@@ -34,7 +34,7 @@ class TransactionSqlQueries implements AccountFlowProvider, CategoryUsageProvide
         Map<UUID, BigDecimal> result = new HashMap<>();
         jdbc.query("""
                 select account_id, sum(delta) as net from (
-                    select account_id, case when type = 'INCOME' then amount else -amount end as delta
+                    select account_id, case when type in ('INCOME', 'LOAN_DISBURSEMENT') then amount else -amount end as delta
                     from transactions where user_id = :userId and status = 'ACTIVE'
                     union all
                     select to_account_id, amount

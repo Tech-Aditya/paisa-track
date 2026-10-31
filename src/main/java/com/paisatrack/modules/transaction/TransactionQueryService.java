@@ -273,6 +273,7 @@ public class TransactionQueryService {
                 t.getDescription(), t.getCounterparty(), t.getPaymentMethod(), t.getNotes(),
                 sourceInfo(sourceRefs, t.getIncomeSourceId()),
                 t.getIncomePeriod() == null ? null : YearMonth.from(t.getIncomePeriod()),
+                t.getLoanId(),
                 t.getVoidedAt(), t.getVoidReason(), t.getCreatedAt(), t.getUpdatedAt())).toList();
     }
 

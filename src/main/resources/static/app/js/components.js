@@ -3,20 +3,22 @@
 import { el, icon } from './dom.js';
 import { money, plural } from './format.js';
 
-const TYPE_ICON = { EXPENSE: 'down', INCOME: 'up', TRANSFER: 'swap' };
+const TYPE_ICON = { EXPENSE: 'down', INCOME: 'up', TRANSFER: 'swap', LOAN_DISBURSEMENT: 'bank', LOAN_PRINCIPAL: 'bank' };
+const LOAN_TITLE = { LOAN_DISBURSEMENT: 'Loan received', LOAN_PRINCIPAL: 'Loan repayment' };
 
 export function txTitle(t) {
     if (t.type === 'TRANSFER') return `${t.account?.name ?? ''} → ${t.toAccount?.name ?? ''}`;
+    if (LOAN_TITLE[t.type]) return LOAN_TITLE[t.type];
     if (!t.category) return t.type === 'INCOME' ? 'Income' : 'Expense';
     return t.category.parentName ? `${t.category.parentName} · ${t.category.name}` : t.category.name;
 }
 
 export function txRow(t, actions = null) {
-    const sign = t.type === 'EXPENSE' ? '−' : t.type === 'INCOME' ? '+' : '';
+    const sign = ['EXPENSE', 'LOAN_PRINCIPAL'].includes(t.type) ? '−' : ['INCOME', 'LOAN_DISBURSEMENT'].includes(t.type) ? '+' : '';
     const meta = [t.description || t.counterparty, t.type === 'TRANSFER' ? 'Transfer' : t.account?.name, t.incomeSource?.name]
         .filter(Boolean).join(' · ');
     return el('div', { class: `row ${t.status === 'VOIDED' ? 'voided' : ''}` },
-        el('div', { class: `tile-icon ${t.type.toLowerCase()}` }, icon(TYPE_ICON[t.type])),
+        el('div', { class: `tile-icon ${t.loanId ? 'loan' : t.type.toLowerCase()}` }, icon(TYPE_ICON[t.type])),
         el('div', { class: 'grow' },
             el('div', { class: 'title', text: txTitle(t) }),
             el('div', { class: 'meta', text: meta || '—' })),

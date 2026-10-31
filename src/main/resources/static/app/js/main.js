@@ -7,12 +7,14 @@ import { openTransactionDialog } from './forms.js';
 import { initials } from './format.js';
 import { store } from './store.js';
 import { renderDebts } from './views/debts.js';
+import { renderLoans } from './views/loans.js';
 import { renderOverview } from './views/overview.js';
 import { renderTransactions } from './views/transactions.js';
 
 const ROUTES = {
     '#/overview': { label: 'Overview', iconName: 'home', render: renderOverview },
     '#/transactions': { label: 'Transactions', iconName: 'list', render: renderTransactions },
+    '#/loans': { label: 'Loans', iconName: 'bank', render: renderLoans },
     '#/debts': { label: 'Lending', iconName: 'people', render: renderDebts },
 };
 

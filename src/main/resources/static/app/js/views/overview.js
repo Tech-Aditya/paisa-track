@@ -8,6 +8,7 @@ import { openAccountDialog, openBudgetDialog, openIncomeSourceDialog, openTransa
 import { addDays, greeting, isoDate, longDate, money, plural, shortDate } from '../format.js';
 import { store } from '../store.js';
 import { debtRow, openDebtDetail } from './debts.js';
+import { openLoanDetail } from './loans.js';
 
 const PRESETS = [
     { value: 'month', label: 'This month' },
@@ -103,10 +104,12 @@ function content(d, range, reload) {
         el('div', { class: 'col-4' }, card('Expected income', { sub: 'this month',
             action: smallButton('Source', () => openIncomeSourceDialog({ onSaved: reload })) }, expectedIncome(d, reload))),
         el('div', { class: 'col-4' }, card('Accounts', { action: smallButton('Account', () => openAccountDialog({ onSaved: reload })) }, accounts(d))),
+        el('div', { class: 'col-8' }, card('Income vs expense', { sub: 'last 6 months' }, trend(d))),
+        el('div', { class: 'col-4' }, card('Loans & EMIs', {
+            action: el('a', { class: 'btn sm ghost', href: '#/loans' }, 'Open', icon('right')) }, loansCard(d, reload))),
         el('div', { class: 'col-4' }, card('Lending & borrowing', {
             action: el('a', { class: 'btn sm ghost', href: '#/debts' }, 'Open', icon('right')) }, debtsCard(d, reload))),
-        el('div', { class: 'col-8' }, card('Income vs expense', { sub: 'last 6 months' }, trend(d))),
-        el('div', { class: 'col-12' }, card('Recent activity', {
+        el('div', { class: 'col-8' }, card('Recent activity', {
             action: el('a', { class: 'btn sm ghost', href: '#/transactions' }, 'View all', icon('right')) }, recent(d, reload))));
 
     const note = el('p', { class: 'faint', style: { marginTop: '16px', fontSize: '12.5px' } },
@@ -185,7 +188,29 @@ function accounts(d) {
                 el('div', { class: 'title', text: acc.name }),
                 el('div', { class: 'meta', text: acc.nature === 'LIABILITY' ? 'Amount owed' : acc.type.replace('_', ' ').toLowerCase() })),
             el('div', { class: `amount num ${acc.nature === 'LIABILITY' ? 'neg' : ''}`, text: money(acc.currentBalance, acc.currency) })))),
+        Number(a.loanOutstanding)
+            ? el('div', { class: 'total sub-total' }, el('span', { text: 'Loans outstanding' }),
+                el('span', { class: 'num neg', text: `−${money(a.loanOutstanding, d.currency)}` }))
+            : null,
         el('div', { class: 'total' }, el('span', { text: 'Net worth' }), el('span', { class: 'num', text: money(a.netWorth, d.currency) })));
+}
+
+function loansCard(d, reload) {
+    const x = d.loans;
+    if (!x.activeLoans) return empty('Add a home, car or personal loan to track EMIs.', 'bank');
+    return el('div', {},
+        el('div', { class: 'debt-stats' },
+            el('div', {}, el('span', { class: 'faint', text: 'Outstanding' }), el('b', { class: 'num neg', text: money(x.outstandingPrincipal, d.currency) })),
+            el('div', {}, el('span', { class: 'faint', text: 'Monthly EMI' }), el('b', { class: 'num', text: money(x.monthlyEmi, d.currency) }))),
+        x.upcoming.length
+            ? el('div', { class: 'rows' }, x.upcoming.slice(0, 4).map((u) => el('button', {
+                class: 'row debt-row', type: 'button', onclick: () => openLoanDetail({ id: u.loanId, name: u.loanName }, reload) },
+            el('div', { class: `tile-icon ${u.status === 'MISSED' ? 'expense' : 'loan'}` }, icon('calendar')),
+            el('div', { class: 'grow' },
+                el('div', { class: 'title', text: `${u.loanName} · EMI ${u.number}` }),
+                el('div', { class: 'meta', text: u.status === 'MISSED' ? `Missed · was due ${shortDate(u.dueDate)}` : `Due ${shortDate(u.dueDate)}` })),
+            el('div', { class: 'amount num', text: money(u.emiAmount, u.currency) }))))
+            : el('p', { class: 'faint', text: 'No EMIs due in the next 30 days.' }));
 }
 
 function trend(d) {

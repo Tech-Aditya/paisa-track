@@ -20,6 +20,8 @@ import com.paisatrack.modules.account.dto.AccountResponse;
 import com.paisatrack.modules.budget.BudgetService;
 import com.paisatrack.modules.debt.DebtService;
 import com.paisatrack.modules.debt.dto.DebtSummaryResponse;
+import com.paisatrack.modules.loan.LoanService;
+import com.paisatrack.modules.loan.dto.LoanSummaryResponse;
 import com.paisatrack.platform.money.MoneyRules;
 import com.paisatrack.modules.dashboard.dto.DashboardResponse;
 import com.paisatrack.modules.dashboard.dto.DashboardResponse.AccountBalance;
@@ -58,10 +60,11 @@ public class DashboardService {
     private final BudgetService budgets;
     private final IncomeSourceService incomeSources;
     private final DebtService debts;
+    private final LoanService loans;
     private final UserPreferencesService preferences;
 
     DashboardService(TransactionTotalsService totals, TransactionQueryService transactions, AccountService accounts,
-                     BudgetService budgets, IncomeSourceService incomeSources, DebtService debts,
+                     BudgetService budgets, IncomeSourceService incomeSources, DebtService debts, LoanService loans,
                      UserPreferencesService preferences) {
         this.totals = totals;
         this.transactions = transactions;
@@ -69,6 +72,7 @@ public class DashboardService {
         this.budgets = budgets;
         this.incomeSources = incomeSources;
         this.debts = debts;
+        this.loans = loans;
         this.preferences = preferences;
     }
 
@@ -104,7 +108,8 @@ public class DashboardService {
                 dailySpending(userId, currency, rangeFrom, rangeTo),
                 monthlyTrend(userId, currency, YearMonth.from(today)),
                 recent(userId, 10),
-                debtsOverview(userId, currency));
+                debtsOverview(userId, currency),
+                loansOverview(userId, currency));
     }
 
     /** Spending by top-level category with each one's share (default: this month). */
@@ -125,6 +130,17 @@ public class DashboardService {
     }
 
     // ---- pieces ----
+
+    private DashboardResponse.LoansOverview loansOverview(UUID userId, String currency) {
+        LoanSummaryResponse summary = loans.summary(userId, 30);
+        LoanSummaryResponse.CurrencyTotals t = summary.currencies().stream()
+                .filter(c -> c.currency().equals(currency)).findFirst().orElse(null);
+        var upcoming = summary.upcoming().stream().filter(e -> e.currency().equals(currency)).limit(5).toList();
+        return new DashboardResponse.LoansOverview(
+                MoneyRules.scaled(t == null ? BigDecimal.ZERO : t.outstandingPrincipal(), currency),
+                MoneyRules.scaled(t == null ? BigDecimal.ZERO : t.monthlyEmi(), currency),
+                t == null ? 0 : t.activeLoans(), t == null ? 0 : t.missedCount(), upcoming);
+    }
 
     private DashboardResponse.DebtsOverview debtsOverview(UUID userId, String currency) {
         DebtSummaryResponse.CurrencyTotals totals = debts.summary(userId).currencies().stream()
@@ -149,17 +165,19 @@ public class DashboardService {
         List<AccountResponse> list = accounts.list(userId, false);
         BigDecimal assets = BigDecimal.ZERO;
         BigDecimal liabilities = BigDecimal.ZERO;
+        BigDecimal loans = BigDecimal.ZERO;
         for (var c : accounts.summary(userId).currencies()) {
             if (c.currency().equals(currency)) {
                 assets = c.totalAssets();
                 liabilities = c.totalLiabilities();
+                loans = c.loanOutstanding();
             }
         }
         List<AccountBalance> balances = list.stream()
                 .map(a -> new AccountBalance(a.id(), a.name(), a.type(), a.nature(), a.currency(), a.currentBalance()))
                 .toList();
         return new AccountsOverview(MoneyRules.scaled(assets, currency), MoneyRules.scaled(liabilities, currency),
-                MoneyRules.scaled(assets.subtract(liabilities), currency), balances);
+                MoneyRules.scaled(loans, currency), MoneyRules.scaled(assets.subtract(liabilities).subtract(loans), currency), balances);
     }
 
     private List<CategorySpending> categorySpending(UUID userId, String currency, LocalDate from, LocalDate to) {

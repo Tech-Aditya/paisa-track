@@ -12,6 +12,7 @@ import com.paisatrack.modules.account.AccountNature;
 import com.paisatrack.modules.account.AccountType;
 import com.paisatrack.modules.budget.dto.BudgetResponse;
 import com.paisatrack.modules.debt.dto.DebtResponse;
+import com.paisatrack.modules.loan.dto.LoanSummaryResponse;
 import com.paisatrack.modules.income.dto.ExpectedIncomeResponse;
 import com.paisatrack.modules.transaction.dto.TransactionResponse;
 
@@ -30,7 +31,8 @@ public record DashboardResponse(
         @Schema(description = "Spending per day over the selected range, zero-filled") List<DailyAmount> dailySpending,
         @Schema(description = "Last 6 months, oldest first") List<MonthlyTrend> monthlyTrend,
         List<TransactionResponse> recentTransactions,
-        @Schema(description = "Lending and borrowing in your default currency; not part of net worth") DebtsOverview debts) {
+        @Schema(description = "Lending and borrowing in your default currency; not part of net worth") DebtsOverview debts,
+        @Schema(description = "Loans in your default currency; outstanding principal is already in net worth") LoansOverview loans) {
 
     public record Periods(Period today, Period week, Period month,
                           @Schema(description = "The from/to range, when one was requested") Period selected) {
@@ -40,7 +42,8 @@ public record DashboardResponse(
                          long incomeCount, long expenseCount) {
     }
 
-    public record AccountsOverview(BigDecimal totalAssets, BigDecimal totalLiabilities, BigDecimal netWorth,
+    public record AccountsOverview(BigDecimal totalAssets, BigDecimal totalLiabilities,
+                                   @Schema(description = "Outstanding loan principal") BigDecimal loanOutstanding, BigDecimal netWorth,
                                    List<AccountBalance> accounts) {
     }
 
@@ -53,6 +56,10 @@ public record DashboardResponse(
     }
 
     public record DailyAmount(LocalDate date, BigDecimal amount) {
+    }
+
+    public record LoansOverview(BigDecimal outstandingPrincipal, BigDecimal monthlyEmi, int activeLoans, int missedCount,
+                                @Schema(description = "Missed or due within 30 days, soonest first") List<LoanSummaryResponse.UpcomingEmi> upcoming) {
     }
 
     public record DebtsOverview(BigDecimal owedToYou, BigDecimal youOwe, int overdueCount,

@@ -3,9 +3,9 @@
 A personal finance, daily expense and money management API. It is built as a
 modular Spring Boot monolith on PostgreSQL.
 
-> **Status:** Phases 1-4 are complete: foundation and security; accounts,
+> **Status:** Phases 1-5 are complete: foundation and security; accounts,
 > categories and transactions; salary, budgets and the dashboard; lending and
-> borrowing. Loans and EMIs come next, in Phase 5.
+> borrowing; loans and EMIs. Savings goals come next, in Phase 6.
 > Design decisions are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Tech stack
@@ -203,8 +203,27 @@ Record a salary credit with `POST /income` and `incomeSourceId` (category and ac
 | GET | `/debts/reminders?days=14` | Open records overdue or due/reminding soon |
 | GET, POST, PATCH, DELETE | `/people`, `/people/{id}` | Contacts (delete only without records) |
 
+**Loans and EMIs** (all bearer). Each EMI is split: interest is an expense (Financial Charges › Interest),
+principal only reduces the loan. Outstanding principal is a liability in net worth.
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/loans/preview` | EMI calculator: EMI, total interest and full schedule; nothing saved |
+| GET, POST | `/loans` | List (`includeClosed=`) or add a loan. EMI is calculated when omitted; `disbursementAccountId` credits the principal (not income); `emisPaidBeforeTracking` for existing loans |
+| GET, PATCH, DELETE | `/loans/{id}` | One loan with payments; edit (terms only before any payment); delete (only without payments) |
+| GET | `/loans/{id}/schedule` | Every installment with principal/interest split and PAID, MISSED, DUE or UPCOMING |
+| GET | `/loans/{id}/history` | Audit trail |
+| POST | `/loans/{id}/emi-payments` | Pay the next EMI (in order); optional `paymentDate`, `accountId` |
+| POST | `/loans/{id}/prepayments` | Prepay principal; EMI stays the same and the schedule ends sooner |
+| POST | `/loans/{id}/payments/{paymentId}/void` | Void the latest payment and its ledger entries |
+| GET | `/loans/summary?days=30` | Outstanding, monthly EMI, principal and interest paid this year, per currency |
+| GET | `/emis/upcoming?days=30` | EMIs missed or due soon across all loans |
+
+Ledger entries a loan creates (`LOAN_DISBURSEMENT`, `LOAN_PRINCIPAL` and the interest expense) carry `loanId`
+and can only be changed through the loan.
+
 Error codes are listed in
-[`ErrorCode`](src/main/java/com/paisatrack/exception/ErrorCode.java).
+[`ErrorCode`](src/main/java/com/paisatrack/platform/exception/ErrorCode.java).
 
 ## Tests
 
@@ -242,12 +261,12 @@ src/main/java/com/paisatrack/
     <module>/            entities, repositories, services (internals package-private)
     <module>/dto/        request and response records
     <module>/web/        REST controllers
-    auth, user, account, category, transaction, income, budget, people, debt, dashboard
+    auth, user, account, category, transaction, income, budget, people, debt, loan, dashboard
 src/main/resources/
   application.yml               shared settings
   application-dev.yml           local development (default)
   application-prod.yml          production
-  db/migration/                 Flyway migrations (V1 … V8)
+  db/migration/                 Flyway migrations (V1 … V10)
   static/app/                   web app: index.html, css/, js/ (ES modules, no build step)
 src/test/java/com/paisatrack/   same layout as main, plus support/ and LocalDevApplication
 ```
@@ -261,10 +280,13 @@ inserted as text.
 - **Overview:** spending today, this week and this month; net cash flow and
   savings rate; daily spending and category donut charts; budgets with alerts;
   expected income, with a one-click **Record** for anything due; accounts and
-  net worth; a 6-month trend; recent activity. Date presets: this month, last
+  net worth (less loans outstanding); EMIs missed or due; a 6-month trend; recent activity. Date presets: this month, last
   month, 30 days, custom.
 - **Transactions:** search, filter by type, category, account and dates; grouped
   by day with daily totals; delete (void) and restore; paging.
+- **Loans:** outstanding, monthly EMI and interest this year; EMIs missed or due
+  with one-click **Pay**; each loan opens its schedule, payments, **Pay EMI**,
+  **Prepay**, void-latest and delete. Adding a loan shows a live EMI preview.
 - **Lending & borrowing:** what others owe you and what you owe, with overdue flags;
   each record opens a panel with repayment history, **Record repayment**, write-off,
   reopen, delete and void.

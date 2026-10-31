@@ -29,6 +29,7 @@ Modules depend on platform, never the reverse.
 | `budget` | Overall/category budgets, monthly/weekly/custom periods, utilization and alerts |
 | `people` | Contacts you lend to or borrow from |
 | `debt` | Money lent and borrowed, repayments, write-offs, overdue status, reminders |
+| `loan` | Formal loans, EMI schedules (amortization), EMI payments, prepayments, upcoming/missed EMIs |
 | `dashboard` | Read-only home-screen aggregates |
 
 | Platform (`platform.*`) | Responsibility |
@@ -43,7 +44,8 @@ Modules depend on platform, never the reverse.
 | `config` | Clock and auditing, OpenAPI, CORS, web app routes |
 
 Dependencies point one way: `auth → user`, `transaction → income, account, category, user`,
-`budget → transaction`, `debt → people, user`, `dashboard → everything it summarises`. Every module may use `platform`.
+`budget → transaction`, `debt → people, user`, `loan → transaction, account, category`,
+`dashboard → everything it summarises`. Every module may use `platform`.
 The `user` module never calls `auth`. When a password changes, `user`
 publishes a `PasswordChangedEvent`. `auth` handles it in the same database
 transaction and revokes that user's refresh tokens.
@@ -54,11 +56,13 @@ higher module implements: `AccountFlowProvider` (net flows for balances),
 `CategoryUsageProvider` (is a category used) are implemented in `transaction`;
 `budget` and `income` also implement `CategoryUsageProvider` in small standalone beans
 so no two services depend on each other. `people` defines `PersonUsageProvider`, which `debt` implements.
+`account` defines `LiabilityProvider` (outstanding loan principal for net worth), which `loan` implements
+alongside `CategoryUsageProvider` (a loan's interest category can't be deleted).
 On registration, `UserRegisteredEvent` seeds a default Cash account and the
 default categories in the same transaction.
 
-Planned modules are `loan`/`emi`,
-`recurring`, `report`, `currency`, `notification` and `attachment`. Each will
+Planned modules are
+`goal`, `recurring`, `report`, `currency`, `notification` and `attachment`. Each will
 follow the same layout.
 
 ## API conventions
@@ -155,8 +159,8 @@ Decisions confirmed with the product owner:
   `VOIDED`) but drops it from balances, lists and totals; restore undoes it.
 - **Categories** are per user, two levels, typed. Defaults are copied from
   `category_templates`. A used category can be renamed or deactivated but not
-  deleted, so history always resolves. EMIs, loan principal and investments are
-  not seeded as expense categories: they get their own transaction types later.
+  deleted, so history always resolves. Loan principal and investments are not
+  expense categories: loans have their own transaction types (Phase 5).
 - **One currency per account.** A transaction uses its account's currency; a
   transfer needs both accounts in the same currency. Conversion arrives in the
   multi-currency phase. Summaries are per currency, never summed across.
@@ -220,6 +224,44 @@ Decisions confirmed with the product owner:
 - People are matched by name (case-insensitive) when a record names one, so "amit" and
   "Amit" are the same contact. A contact with records can't be deleted.
 
+## Loans and EMIs (Phase 5)
+
+Decisions confirmed with the product owner:
+
+- **An EMI is split in the ledger.** Paying an EMI posts two entries from the chosen
+  account: the interest as an `EXPENSE` (default category Financial Charges › Interest)
+  and the principal as `LOAN_PRINCIPAL`. The account balance drops by the full EMI, but
+  only the interest counts as spending, in totals, budgets and the dashboard. Principal is
+  never counted twice.
+- **Disbursement is optional and never income.** When the money was credited to one of
+  your accounts, a `LOAN_DISBURSEMENT` inflow raises that balance; income totals ignore it.
+- **Outstanding principal is a liability in net worth**: assets − card balances owed −
+  loans outstanding. It is derived (principal − active principal payments), never stored.
+- **Standard reducing-balance EMI**: `P·r·(1+r)^n / ((1+r)^n − 1)` with `r` = annual
+  rate / 12, rounded to currency precision; 0 % loans split the principal evenly. Each
+  month's interest is the opening balance × `r`, and the last installment clears the
+  remainder. A bank-quoted EMI can be entered instead; one too small to cover interest
+  is rejected.
+- **Schedules are stored** (`loan_installments`). Paid rows are frozen. A prepayment
+  keeps the EMI and regenerates the unpaid rows from the new balance, so the loan ends
+  sooner. Voiding a prepayment regenerates them again.
+- **EMIs are paid in order, and only the latest payment can be voided.** This keeps the
+  schedule and payments consistent without a reconciliation step. Voiding reverses the
+  payment's ledger entries.
+- **Status is computed on read**: PAID, MISSED (due date passed), DUE (next, not yet late),
+  UPCOMING. `/emis/upcoming` lists missed and soon-due EMIs for reminders.
+- **Existing loans.** `emisPaidBeforeTracking` marks earlier installments paid with no
+  account and no ledger entries, so past spending isn't invented.
+- **Terms lock after the first payment.** Amount, rate, tenure, EMI and dates can change
+  only before any payment; name, lender, type, payment account, interest category and notes
+  stay editable. A loan with
+  payments can't be deleted.
+- **Loan-managed entries** carry `transactions.loan_id`. Editing, voiding or restoring them
+  through `/transactions` returns `LOAN_MANAGED`; they change only through the loan.
+- **Concurrency.** Payments, prepayments, voids and edits take a row lock on the loan, and a
+  partial unique index stops two active payments for one installment. Creates and payments
+  accept `Idempotency-Key`.
+
 ## Observability
 
 - Every request gets an `X-Request-Id`. A safe id sent by the client is
@@ -253,5 +295,10 @@ Decisions confirmed with the product owner:
   have no history table like income expectations do.
 - **Budget utilization runs one query per budget.** Fine for a handful of
   budgets; batch it if users keep many.
+- **Loans have one fixed rate.** Floating-rate resets, EMI changes after a prepayment
+  and partial EMIs aren't modelled; the stored schedule is regenerated only on prepay
+  and void.
+- **Assets bought with a loan aren't tracked** (no house or car value yet), so a home loan
+  without a disbursement account makes net worth negative.
 - **Forgot/reset password** needs an email provider. It is deferred to the
   notifications phase.

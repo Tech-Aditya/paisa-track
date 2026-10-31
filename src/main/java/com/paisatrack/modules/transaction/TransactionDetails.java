@@ -19,5 +19,6 @@ record TransactionDetails(
         PaymentMethod paymentMethod,
         String notes,
         UUID incomeSourceId,
-        LocalDate incomePeriod) {
+        LocalDate incomePeriod,
+        UUID loanId) {
 }

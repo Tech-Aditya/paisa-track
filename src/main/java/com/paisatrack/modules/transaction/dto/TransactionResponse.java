@@ -30,6 +30,7 @@ public record TransactionResponse(
         String notes,
         @Schema(description = "Income only: the source this receipt settles") SourceInfo incomeSource,
         @Schema(description = "Income only: pay period settled", type = "string", example = "2026-10") YearMonth incomePeriod,
+        @Schema(description = "Set when a loan created this entry; change it from the loan") UUID loanId,
         Instant voidedAt,
         String voidReason,
         Instant createdAt,

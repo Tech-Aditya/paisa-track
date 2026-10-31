@@ -42,14 +42,17 @@ public class AccountService {
 
     private final AccountRepository repository;
     private final AccountFlowProvider flows;
+    private final List<LiabilityProvider> liabilities;
     private final UserPreferencesService preferences;
     private final AuditService audit;
     private final Clock clock;
 
-    AccountService(AccountRepository repository, AccountFlowProvider flows, UserPreferencesService preferences,
+    AccountService(AccountRepository repository, AccountFlowProvider flows, List<LiabilityProvider> liabilities,
+                   UserPreferencesService preferences,
                    AuditService audit, Clock clock) {
         this.repository = repository;
         this.flows = flows;
+        this.liabilities = liabilities;
         this.preferences = preferences;
         this.audit = audit;
         this.clock = clock;
@@ -69,19 +72,27 @@ public class AccountService {
         return toResponse(load(userId, accountId), flows.netFlows(userId));
     }
 
-    /** Per-currency totals over all accounts, including deactivated ones that still hold money. */
+    /**
+     * Per-currency totals over all accounts (deactivated ones included, they may still hold money),
+     * minus outstanding loans. Net worth = assets - card balances owed - loan principal outstanding.
+     */
     @Transactional(readOnly = true)
     public AccountsSummaryResponse summary(UUID userId) {
         Map<String, List<AccountResponse>> byCurrency = list(userId, true).stream()
                 .collect(Collectors.groupingBy(AccountResponse::currency, TreeMap::new, Collectors.toList()));
+        Map<String, BigDecimal> loans = new TreeMap<>();
+        liabilities.forEach(p -> p.outstandingByCurrency(userId).forEach((c, v) -> loans.merge(c, v, BigDecimal::add)));
+        loans.keySet().forEach(c -> byCurrency.putIfAbsent(c, List.of()));
         List<CurrencyTotals> totals = byCurrency.entrySet().stream().map(entry -> {
             String currency = entry.getKey();
             BigDecimal assets = sum(entry.getValue(), AccountNature.ASSET);
-            BigDecimal liabilities = sum(entry.getValue(), AccountNature.LIABILITY);
+            BigDecimal owed = sum(entry.getValue(), AccountNature.LIABILITY);
+            BigDecimal loan = loans.getOrDefault(currency, BigDecimal.ZERO);
             return new CurrencyTotals(currency, entry.getValue().size(),
                     MoneyRules.scaled(assets, currency),
-                    MoneyRules.scaled(liabilities, currency),
-                    MoneyRules.scaled(assets.subtract(liabilities), currency));
+                    MoneyRules.scaled(owed, currency),
+                    MoneyRules.scaled(loan, currency),
+                    MoneyRules.scaled(assets.subtract(owed).subtract(loan), currency));
         }).toList();
         return new AccountsSummaryResponse(totals);
     }
