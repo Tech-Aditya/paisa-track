@@ -51,6 +51,13 @@ public class Transaction extends AuditableEntity {
     @Column(name = "account_id", nullable = false)
     private UUID accountId;
 
+    /** Cross-currency transfers only: what arrived in the destination account. */
+    @Column(name = "to_amount", precision = 19, scale = 4)
+    private BigDecimal toAmount;
+
+    @Column(name = "to_currency", length = 3)
+    private String toCurrency;
+
     @Column(name = "to_account_id")
     private UUID toAccountId;
 
@@ -118,6 +125,8 @@ public class Transaction extends AuditableEntity {
         this.incomeSourceId = d.incomeSourceId();
         this.incomePeriod = d.incomePeriod();
         this.loanId = d.loanId();
+        this.toAmount = d.toAmount();
+        this.toCurrency = d.toCurrency();
     }
 
     void markVoided(Instant at, String reason) {
@@ -152,11 +161,23 @@ public class Transaction extends AuditableEntity {
         s.put("notes", notes);
         s.put("incomeSourceId", incomeSourceId);
         s.put("incomePeriod", incomePeriod == null ? null : incomePeriod.toString());
+        if (toAmount != null) {
+            s.put("toAmount", toAmount.stripTrailingZeros().toPlainString());
+            s.put("toCurrency", toCurrency);
+        }
         return s;
     }
 
     public UUID getId() {
         return id;
+    }
+
+    public BigDecimal getToAmount() {
+        return toAmount;
+    }
+
+    public String getToCurrency() {
+        return toCurrency;
     }
 
     public UUID getUserId() {

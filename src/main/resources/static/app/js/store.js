@@ -18,6 +18,7 @@ export const store = {
     incomeCategories: () => cached('cat:INCOME', () => api.get('/categories?type=INCOME')),
     incomeSources: () => cached('sources', () => api.get('/income-sources')),
     people: () => cached('people', () => api.get('/people')),
+    currencies: () => cached('currencies', () => api.get('/currencies')),
 
     /** Forget cached data after a change so the next read is fresh. */
     invalidate(...keys) {
@@ -35,6 +36,19 @@ export function categoryOptions(tree, selectedId) {
             ...(parent.children ?? []).map((c) => ({ value: c.id, label: `${parent.name} › ${c.name}`, selected: c.id === selectedId })),
         ],
     }));
+}
+
+const COMMON = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD', 'AUD', 'CAD', 'JPY'];
+
+/** Currency choices: the common ones first, then every ISO currency. */
+export function currencyOptions(list, selected) {
+    const label = (c) => `${c.code} · ${c.name}`;
+    const common = COMMON.map((code) => list.find((c) => c.code === code)).filter(Boolean);
+    return [
+        { group: 'Common', options: common.map((c) => ({ value: c.code, label: label(c), selected: c.code === selected })) },
+        { group: 'All currencies', options: list.filter((c) => !COMMON.includes(c.code))
+            .map((c) => ({ value: c.code, label: label(c), selected: c.code === selected })) },
+    ];
 }
 
 export function accountOptions(accounts, selectedId) {

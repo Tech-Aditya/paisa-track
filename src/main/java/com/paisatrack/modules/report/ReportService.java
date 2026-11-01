@@ -10,6 +10,7 @@ import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -28,12 +29,17 @@ import com.paisatrack.modules.budget.BudgetService;
 import com.paisatrack.modules.budget.dto.BudgetResponse;
 import com.paisatrack.modules.category.CategoryRef;
 import com.paisatrack.modules.category.CategoryService;
+import com.paisatrack.modules.currency.CurrencyService;
+import com.paisatrack.modules.currency.RateBook;
 import com.paisatrack.modules.debt.DebtService;
 import com.paisatrack.modules.debt.dto.DebtSummaryResponse;
 import com.paisatrack.modules.loan.LoanService;
 import com.paisatrack.modules.loan.dto.LoanSummaryResponse;
 import com.paisatrack.modules.report.ReportQueries.Filter;
+import com.paisatrack.modules.report.ReportQueries.CategoryRow;
+import com.paisatrack.modules.report.ReportQueries.DayRow;
 import com.paisatrack.modules.report.ReportQueries.Totals;
+import com.paisatrack.modules.report.ReportQueries.TotalsRow;
 import com.paisatrack.modules.report.dto.ReportResponse;
 import com.paisatrack.modules.report.dto.ReportResponse.Insight;
 import com.paisatrack.modules.report.dto.ReportResponse.Kind;
@@ -54,7 +60,9 @@ public class ReportService {
 
     static final String BASIS = "Recorded transactions only: expected salary, recurring plans and voided entries are excluded. "
             + "Transfers, investments, loan principal, loan disbursements, lending and borrowing are never income or spending; "
-            + "loan interest is spending and shown separately. One currency; other currencies are counted, not added.";
+            + "loan interest is spending and shown separately. Other currencies are converted with the latest rate on or before "
+            + "each entry's date; entries without a rate are listed, not added.";
+    static final int TOP_EXPENSES = 5;
     static final int MAX_CUSTOM_DAYS = 731;
     private static final int DAILY_SERIES_MAX_DAYS = 62;
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
@@ -66,9 +74,10 @@ public class ReportService {
     private final DebtService debts;
     private final LoanService loans;
     private final UserPreferencesService preferences;
+    private final CurrencyService currencies;
 
     ReportService(ReportQueries queries, CategoryService categories, AccountService accounts, BudgetService budgets,
-                  DebtService debts, LoanService loans, UserPreferencesService preferences) {
+                  DebtService debts, LoanService loans, UserPreferencesService preferences, CurrencyService currencies) {
         this.queries = queries;
         this.categories = categories;
         this.accounts = accounts;
@@ -76,6 +85,7 @@ public class ReportService {
         this.debts = debts;
         this.loans = loans;
         this.preferences = preferences;
+        this.currencies = currencies;
     }
 
     @Transactional(readOnly = true)
@@ -190,26 +200,47 @@ public class ReportService {
         String c = requestedCurrency != null ? requestedCurrency : preferences.defaultCurrency(userId);
         Window w = window(kind, from, to, today);
 
-        Totals cur = queries.totals(userId, c, w.from(), w.end(), filter);
-        Totals prev = queries.totals(userId, c, w.prevFrom(), w.prevTo(), filter);
+        List<TotalsRow> curRows = queries.totals(userId, w.from(), w.end(), filter);
+        List<TotalsRow> prevRows = queries.totals(userId, w.prevFrom(), w.prevTo(), filter);
+        List<CategoryRow> curExpense = queries.byCategory(userId, w.from(), w.end(), "EXPENSE", filter);
+        List<CategoryRow> prevExpense = queries.byCategory(userId, w.prevFrom(), w.prevTo(), "EXPENSE", filter);
+        List<CategoryRow> curIncome = queries.byCategory(userId, w.from(), w.end(), "INCOME", filter);
+        List<CategoryRow> prevIncome = queries.byCategory(userId, w.prevFrom(), w.prevTo(), "INCOME", filter);
+        List<DayRow> days = queries.daily(userId, w.from(), w.end(), filter);
+        List<ReportQueries.Expense> top = queries.topExpenses(userId, w.from(), w.end(), TOP_EXPENSES, filter);
+        List<ReportQueries.DebtActivity> debtRows = filter.isEmpty() ? queries.debtActivity(userId, w.from(), w.end()) : List.of();
+        LoanSummaryResponse loanSummary = filter.isEmpty() ? loans.summary(userId, 30) : null;
+        DebtSummaryResponse debtSummary = filter.isEmpty() ? debts.summary(userId) : null;
+
+        Set<String> involved = new HashSet<>();
+        Stream.of(curRows, prevRows).flatMap(List::stream).forEach(r -> involved.add(r.currency()));
+        Stream.of(curExpense, prevExpense, curIncome, prevIncome).flatMap(List::stream).forEach(r -> involved.add(r.currency()));
+        debtRows.forEach(r -> involved.add(r.currency()));
+        if (loanSummary != null) {
+            loanSummary.currencies().forEach(x -> involved.add(x.currency()));
+        }
+        if (debtSummary != null) {
+            debtSummary.currencies().forEach(x -> involved.add(x.currency()));
+        }
+        // One rate book for the whole report. Only the current period's totals are recorded as
+        // "converted / missing"; breakdowns use the same rates without counting entries twice.
+        RateBook book = currencies.book(userId, c, involved, today);
+        RateBook quiet = book.untracked();
+
+        Totals cur = sum(curRows, book);
+        Totals prev = sum(prevRows, quiet);
         ReportResponse.Summary summary = summary(cur, w.days(), c);
         ReportResponse.Comparison comparison = comparison(cur, prev, w, c);
-
-        List<ReportQueries.CategoryTotal> curExpense = queries.byCategory(userId, c, w.from(), w.end(), "EXPENSE", filter);
-        List<ReportQueries.CategoryTotal> prevExpense = queries.byCategory(userId, c, w.prevFrom(), w.prevTo(), "EXPENSE", filter);
-        List<ReportQueries.CategoryTotal> curIncome = queries.byCategory(userId, c, w.from(), w.end(), "INCOME", filter);
-        List<ReportQueries.CategoryTotal> prevIncome = queries.byCategory(userId, c, w.prevFrom(), w.prevTo(), "INCOME", filter);
-        List<ReportQueries.Expense> top = queries.topExpenses(userId, c, w.from(), w.end(), 5, filter);
 
         Set<UUID> categoryIds = new HashSet<>();
         Stream.of(curExpense, prevExpense, curIncome, prevIncome).flatMap(List::stream).forEach(x -> categoryIds.add(x.categoryId()));
         top.forEach(x -> categoryIds.add(x.categoryId()));
         Map<UUID, CategoryRef> refs = categories.refs(userId, categoryIds);
-        List<ReportResponse.CategoryLine> expenseLines = categoryLines(curExpense, prevExpense, refs, c);
-        List<ReportResponse.CategoryLine> incomeLines = categoryLines(curIncome, prevIncome, refs, c);
+        List<ReportResponse.CategoryLine> expenseLines = categoryLines(byCategory(curExpense, quiet), byCategory(prevExpense, quiet), refs, c);
+        List<ReportResponse.CategoryLine> incomeLines = categoryLines(byCategory(curIncome, quiet), byCategory(prevIncome, quiet), refs, c);
 
         boolean monthly = ChronoUnit.DAYS.between(from, to) + 1 > DAILY_SERIES_MAX_DAYS;
-        List<ReportResponse.SeriesPoint> series = series(queries.series(userId, c, w.from(), w.end(), monthly, filter), w, monthly, c);
+        List<ReportResponse.SeriesPoint> series = series(days, quiet, w, monthly, c);
         ReportResponse.Peak high = null;
         ReportResponse.Peak low = null;
         if (kind != Kind.DAILY && !series.isEmpty()) {
@@ -219,9 +250,14 @@ public class ReportService {
                     .map(p -> new ReportResponse.Peak(p.date(), p.expense())).orElse(null);
         }
 
-        List<ReportResponse.TopExpense> topExpenses = top.stream().map(e -> new ReportResponse.TopExpense(e.id(),
-                MoneyRules.scaled(e.amount(), c), e.date(), e.description(), e.counterparty(), name(refs.get(e.categoryId())))).toList();
-        List<ReportResponse.AccountLine> accountLines = accountLines(userId, c, w, filter);
+        List<ReportResponse.TopExpense> topExpenses = top.stream()
+                .flatMap(e -> quiet.quote(e.currency(), e.date()).map(q -> new ReportResponse.TopExpense(e.id(),
+                        MoneyRules.scaled(e.amount().multiply(q.rate()), c), e.date(), e.description(), e.counterparty(),
+                        name(refs.get(e.categoryId())), MoneyRules.scaled(e.amount(), e.currency()), e.currency())).stream())
+                .sorted(Comparator.comparing(ReportResponse.TopExpense::amount).reversed())
+                .limit(TOP_EXPENSES)
+                .toList();
+        List<ReportResponse.AccountLine> accountLines = accountLines(userId, w, filter);
 
         List<ReportResponse.BudgetLine> budgetLines = null;
         ReportResponse.Salary salary = null;
@@ -230,14 +266,62 @@ public class ReportService {
         if (filter.isEmpty()) {
             budgetLines = budgetLines(userId, c, w.end());
             salary = new ReportResponse.Salary(MoneyRules.scaled(cur.salary(), c), summary.expense(), percent(cur.expense(), cur.salary()));
-            lending = lending(userId, c, w);
-            loanSection = loans(userId, c, cur);
+            lending = lending(debtRows, debtSummary, quiet, w, today, c);
+            loanSection = loans(loanSummary, quiet, today, cur, c);
         }
-        List<Insight> insights = Insights.of(kind, w, summary, comparison, expenseLines, budgetLines, loanSection, c);
+        List<ReportResponse.ConversionLine> conversions = book.usage().stream()
+                .map(u -> new ReportResponse.ConversionLine(u.currency(), u.converted(), u.missing(), u.firstRateDate(), u.lastRateDate(),
+                        u.sources().stream().sorted().toList(), u.missingFrom()))
+                .toList();
+        long unconverted = conversions.stream().mapToLong(ReportResponse.ConversionLine::missingEntries).sum();
+        List<Insight> insights = Insights.of(kind, w, summary, comparison, expenseLines, budgetLines, loanSection, conversions, c);
         return new ReportResponse(kind, from, to, c, today, w.complete(), BASIS, filters, summary, comparison, expenseLines,
                 incomeLines, monthly ? ReportResponse.Granularity.MONTH : ReportResponse.Granularity.DAY, series, high, low,
-                topExpenses, accountLines, budgetLines, salary, lending, loanSection, insights,
-                queries.otherCurrencyCount(userId, c, w.from(), w.end()));
+                topExpenses, accountLines, budgetLines, salary, lending, loanSection, insights, conversions, unconverted);
+    }
+
+    /** Adds up rows of any currency in the report currency; rows without a rate are left out (and recorded). */
+    private static Totals sum(List<TotalsRow> rows, RateBook book) {
+        BigDecimal[] a = new BigDecimal[11];
+        java.util.Arrays.fill(a, BigDecimal.ZERO);
+        long incomeCount = 0;
+        long expenseCount = 0;
+        long transferCount = 0;
+        for (TotalsRow r : rows) {
+            var rate = book.use(r.currency(), r.date(), r.entries());
+            if (rate.isEmpty()) {
+                continue;
+            }
+            BigDecimal x = rate.get();
+            Totals t = r.totals();
+            BigDecimal[] values = {t.income(), t.expense(), t.interest(), t.transfers(), t.cardPayments(), t.invested(),
+                t.withdrawn(), t.principalRepaid(), t.disbursed(), t.salary(), BigDecimal.ZERO};
+            for (int i = 0; i < values.length; i++) {
+                a[i] = a[i].add(values[i].multiply(x));
+            }
+            incomeCount += t.incomeCount();
+            expenseCount += t.expenseCount();
+            transferCount += t.transferCount();
+        }
+        return new Totals(a[0], incomeCount, a[1], expenseCount, a[2], a[3], transferCount, a[4], a[5], a[6], a[7], a[8], a[9]);
+    }
+
+    private record CategorySum(UUID categoryId, BigDecimal total, long count) {
+    }
+
+    private static List<CategorySum> byCategory(List<CategoryRow> rows, RateBook book) {
+        Map<UUID, BigDecimal> totals = new HashMap<>();
+        Map<UUID, Long> counts = new HashMap<>();
+        for (CategoryRow r : rows) {
+            book.quote(r.currency(), r.date()).ifPresent(q -> {
+                totals.merge(r.categoryId(), r.total().multiply(q.rate()), BigDecimal::add);
+                counts.merge(r.categoryId(), r.count(), Long::sum);
+            });
+        }
+        return totals.entrySet().stream()
+                .map(e -> new CategorySum(e.getKey(), e.getValue(), counts.get(e.getKey())))
+                .sorted(Comparator.comparing(CategorySum::total).reversed())
+                .toList();
     }
 
     private static ReportResponse.Summary summary(Totals t, long days, String c) {
@@ -259,46 +343,55 @@ public class ReportService {
         return new ReportResponse.Comparison(w.prevFrom(), w.prevTo(), w.samePoint() ? "SAME_POINT" : "FULL_PERIOD",
                 MoneyRules.scaled(prev.income(), c), MoneyRules.scaled(prev.expense(), c),
                 MoneyRules.scaled(prev.expense().subtract(prev.interest()), c), MoneyRules.scaled(net, c), percent(net, prev.income()),
-                change(cur.income(), prev.income()), change(cur.expense(), prev.expense()));
+                change(MoneyRules.scaled(cur.income(), c), MoneyRules.scaled(prev.income(), c)),
+                change(MoneyRules.scaled(cur.expense(), c), MoneyRules.scaled(prev.expense(), c)));
     }
 
-    private static List<ReportResponse.CategoryLine> categoryLines(List<ReportQueries.CategoryTotal> cur, List<ReportQueries.CategoryTotal> prev,
+    private static List<ReportResponse.CategoryLine> categoryLines(List<CategorySum> cur, List<CategorySum> prev,
                                                                    Map<UUID, CategoryRef> refs, String c) {
-        BigDecimal total = cur.stream().map(ReportQueries.CategoryTotal::total).reduce(BigDecimal.ZERO, BigDecimal::add);
-        Map<UUID, BigDecimal> before = prev.stream().collect(Collectors.toMap(ReportQueries.CategoryTotal::categoryId,
-                ReportQueries.CategoryTotal::total));
+        BigDecimal total = cur.stream().map(CategorySum::total).reduce(BigDecimal.ZERO, BigDecimal::add);
+        Map<UUID, BigDecimal> before = prev.stream().collect(Collectors.toMap(CategorySum::categoryId, CategorySum::total));
         return cur.stream().map(x -> {
-            BigDecimal previous = before.getOrDefault(x.categoryId(), BigDecimal.ZERO);
-            return new ReportResponse.CategoryLine(x.categoryId(), name(refs.get(x.categoryId())), MoneyRules.scaled(x.total(), c),
-                    x.count(), percent(x.total(), total), MoneyRules.scaled(previous, c), change(x.total(), previous));
+            BigDecimal now = MoneyRules.scaled(x.total(), c);
+            BigDecimal previous = MoneyRules.scaled(before.getOrDefault(x.categoryId(), BigDecimal.ZERO), c);
+            return new ReportResponse.CategoryLine(x.categoryId(), name(refs.get(x.categoryId())), now,
+                    x.count(), percent(x.total(), total), previous, change(now, previous));
         }).toList();
     }
 
-    /** Zero-filled from the start of the report to how far it has run. */
-    private static List<ReportResponse.SeriesPoint> series(List<ReportQueries.Point> points, Window w, boolean monthly, String c) {
-        Map<LocalDate, ReportQueries.Point> byDate = points.stream().collect(Collectors.toMap(ReportQueries.Point::date, Function.identity()));
+    /** Zero-filled from the start of the report to how far it has run, per day or per month. */
+    private static List<ReportResponse.SeriesPoint> series(List<DayRow> rows, RateBook book, Window w, boolean monthly, String c) {
+        Map<LocalDate, BigDecimal[]> buckets = new HashMap<>();
+        for (DayRow r : rows) {
+            book.quote(r.currency(), r.date()).ifPresent(q -> {
+                BigDecimal[] b = buckets.computeIfAbsent(monthly ? r.date().withDayOfMonth(1) : r.date(),
+                        k -> new BigDecimal[] {BigDecimal.ZERO, BigDecimal.ZERO});
+                b[0] = b[0].add(r.income().multiply(q.rate()));
+                b[1] = b[1].add(r.expense().multiply(q.rate()));
+            });
+        }
         List<ReportResponse.SeriesPoint> out = new ArrayList<>();
         LocalDate d = monthly ? w.from().withDayOfMonth(1) : w.from();
         while (!d.isAfter(w.end())) {
-            ReportQueries.Point p = byDate.get(d);
-            BigDecimal income = p == null ? BigDecimal.ZERO : p.income();
-            BigDecimal expense = p == null ? BigDecimal.ZERO : p.expense();
-            out.add(new ReportResponse.SeriesPoint(d, MoneyRules.scaled(income, c), MoneyRules.scaled(expense, c),
-                    MoneyRules.scaled(income.subtract(expense), c)));
+            BigDecimal[] b = buckets.getOrDefault(d, new BigDecimal[] {BigDecimal.ZERO, BigDecimal.ZERO});
+            BigDecimal income = MoneyRules.scaled(b[0], c);
+            BigDecimal expense = MoneyRules.scaled(b[1], c);
+            out.add(new ReportResponse.SeriesPoint(d, income, expense, income.subtract(expense)));
             d = monthly ? d.plusMonths(1) : d.plusDays(1);
         }
         return out;
     }
 
-    private List<ReportResponse.AccountLine> accountLines(UUID userId, String c, Window w, Filter filter) {
-        Map<UUID, ReportQueries.AccountFlow> flows = queries.accountFlows(userId, c, w.from(), w.end());
+    /** Each account in its own currency: balances are never converted here. */
+    private List<ReportResponse.AccountLine> accountLines(UUID userId, Window w, Filter filter) {
+        Map<UUID, ReportQueries.AccountFlow> flows = queries.accountFlows(userId, w.from(), w.end());
         return accounts.list(userId, true).stream()
-                .filter(a -> a.currency().equals(c))
                 .filter(a -> filter.accountId() == null ? a.active() || flows.containsKey(a.id()) : a.id().equals(filter.accountId()))
                 .map(a -> {
+                    String ac = a.currency();
                     ReportQueries.AccountFlow f = flows.getOrDefault(a.id(), new ReportQueries.AccountFlow(BigDecimal.ZERO, BigDecimal.ZERO));
-                    return new ReportResponse.AccountLine(a.id(), a.name(), a.type(), MoneyRules.scaled(f.inflow(), c),
-                            MoneyRules.scaled(f.outflow(), c), MoneyRules.scaled(f.inflow().subtract(f.outflow()), c), a.currentBalance());
+                    return new ReportResponse.AccountLine(a.id(), a.name(), a.type(), ac, MoneyRules.scaled(f.inflow(), ac),
+                            MoneyRules.scaled(f.outflow(), ac), MoneyRules.scaled(f.inflow().subtract(f.outflow()), ac), a.currentBalance());
                 })
                 .toList();
     }
@@ -315,24 +408,41 @@ public class ReportService {
                 .toList();
     }
 
-    private ReportResponse.Lending lending(UUID userId, String c, Window w) {
-        ReportQueries.DebtActivity a = queries.debtActivity(userId, c, w.from(), w.end());
-        DebtSummaryResponse.CurrencyTotals now = debts.summary(userId).currencies().stream()
-                .filter(x -> x.currency().equals(c)).findFirst().orElse(null);
-        return new ReportResponse.Lending(MoneyRules.scaled(a.lent(), c), MoneyRules.scaled(a.repaidToYou(), c),
-                MoneyRules.scaled(now == null ? BigDecimal.ZERO : now.owedToYou(), c),
-                MoneyRules.scaled(a.borrowed(), c), MoneyRules.scaled(a.youRepaid(), c),
-                MoneyRules.scaled(now == null ? BigDecimal.ZERO : now.youOwe(), c));
+    /** Activity converted at the end of the period; balances "now" at today's rate. */
+    private static ReportResponse.Lending lending(List<ReportQueries.DebtActivity> rows, DebtSummaryResponse now, RateBook book, Window w,
+                                                  LocalDate today, String c) {
+        BigDecimal[] a = {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO};
+        for (ReportQueries.DebtActivity r : rows) {
+            book.quote(r.currency(), w.end()).ifPresent(q -> {
+                a[0] = a[0].add(r.lent().multiply(q.rate()));
+                a[1] = a[1].add(r.repaidToYou().multiply(q.rate()));
+                a[3] = a[3].add(r.borrowed().multiply(q.rate()));
+                a[4] = a[4].add(r.youRepaid().multiply(q.rate()));
+            });
+        }
+        for (DebtSummaryResponse.CurrencyTotals t : now.currencies()) {
+            book.quote(t.currency(), today).ifPresent(q -> {
+                a[2] = a[2].add(t.owedToYou().multiply(q.rate()));
+                a[5] = a[5].add(t.youOwe().multiply(q.rate()));
+            });
+        }
+        return new ReportResponse.Lending(MoneyRules.scaled(a[0], c), MoneyRules.scaled(a[1], c), MoneyRules.scaled(a[2], c),
+                MoneyRules.scaled(a[3], c), MoneyRules.scaled(a[4], c), MoneyRules.scaled(a[5], c));
     }
 
-    private ReportResponse.Loans loans(UUID userId, String c, Totals cur) {
-        LoanSummaryResponse s = loans.summary(userId, 30);
-        LoanSummaryResponse.CurrencyTotals t = s.currencies().stream().filter(x -> x.currency().equals(c)).findFirst().orElse(null);
-        BigDecimal dueSoon = s.upcoming().stream().filter(e -> e.currency().equals(c))
-                .map(LoanSummaryResponse.UpcomingEmi::emiAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+    private static ReportResponse.Loans loans(LoanSummaryResponse s, RateBook book, LocalDate today, Totals cur, String c) {
+        BigDecimal[] a = {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO};
+        for (LoanSummaryResponse.CurrencyTotals t : s.currencies()) {
+            book.quote(t.currency(), today).ifPresent(q -> {
+                a[0] = a[0].add(t.outstandingPrincipal().multiply(q.rate()));
+                a[1] = a[1].add(t.monthlyEmi().multiply(q.rate()));
+            });
+        }
+        for (LoanSummaryResponse.UpcomingEmi e : s.upcoming()) {
+            book.quote(e.currency(), today).ifPresent(q -> a[2] = a[2].add(e.emiAmount().multiply(q.rate())));
+        }
         return new ReportResponse.Loans(MoneyRules.scaled(cur.principalRepaid(), c), MoneyRules.scaled(cur.interest(), c),
-                MoneyRules.scaled(t == null ? BigDecimal.ZERO : t.outstandingPrincipal(), c),
-                MoneyRules.scaled(t == null ? BigDecimal.ZERO : t.monthlyEmi(), c), MoneyRules.scaled(dueSoon, c));
+                MoneyRules.scaled(a[0], c), MoneyRules.scaled(a[1], c), MoneyRules.scaled(a[2], c));
     }
 
     // ---- maths ----

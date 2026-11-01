@@ -33,8 +33,16 @@ final class Insights {
 
     static List<Insight> of(Kind kind, Window w, ReportResponse.Summary s, ReportResponse.Comparison cmp,
                             List<ReportResponse.CategoryLine> categories, List<ReportResponse.BudgetLine> budgets,
-                            ReportResponse.Loans loans, String c) {
+                            ReportResponse.Loans loans, List<ReportResponse.ConversionLine> conversions, String c) {
         List<Insight> out = new ArrayList<>();
+        for (ReportResponse.ConversionLine x : conversions) {
+            if (x.missingEntries() > 0) {
+                out.add(new Insight("UNCONVERTED", Tone.WARNING, x.missingEntries() + (x.missingEntries() == 1 ? " entry" : " entries") + " in "
+                        + x.currency() + " could not be converted (no " + x.currency() + " to " + c + " rate on or before "
+                        + x.missingFrom() + ") and " + (x.missingEntries() == 1 ? "is" : "are") + " not included. Add a rate to include "
+                        + (x.missingEntries() == 1 ? "it." : "them.")));
+            }
+        }
         if (s.incomeCount() == 0 && s.expenseCount() == 0) {
             out.add(new Insight("NO_ACTIVITY", Tone.NEUTRAL, "No income or spending recorded in this period yet."));
         }

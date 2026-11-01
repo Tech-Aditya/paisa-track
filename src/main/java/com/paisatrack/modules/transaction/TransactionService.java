@@ -172,7 +172,7 @@ public class TransactionService {
         MoneyRules.requireValidAmount("amount", m.amount(), m.currency());
         Transaction transaction = repository.saveAndFlush(new Transaction(userId, m.type(), new TransactionDetails(
                 m.amount(), m.currency(), account.id(), null, m.categoryId(), m.date(), null,
-                clean(m.description()), clean(m.counterparty()), null, null, null, null, m.loanId())));
+                clean(m.description()), clean(m.counterparty()), null, null, null, null, m.loanId(), null, null)));
         audit.record(userId, AUDIT_ENTITY, transaction.getId(), AuditAction.CREATED,
                 AuditService.diff(Map.of(), transaction.snapshot()));
         return transaction.getId();
@@ -292,7 +292,7 @@ public class TransactionService {
                 ? entry.paymentMethod() : PaymentMethod.defaultFor(account.type());
         return new TransactionDetails(entry.amount(), currency, account.id(), null, category.id(), date, entry.time(),
                 clean(entry.description()), clean(entry.counterparty()), paymentMethod, clean(entry.notes()),
-                source == null ? null : source.id(), period, null);
+                source == null ? null : source.id(), period, null, null, null);
     }
 
     private TransactionDetails resolveTransfer(UUID userId, TransferRequest request, Transaction current) {
@@ -303,15 +303,22 @@ public class TransactionService {
                 current == null ? null : current.getAccountId());
         AccountRef to = accounts.requireForTransaction(userId, request.toAccountId(), "toAccountId",
                 current == null ? null : current.getToAccountId());
-        if (!from.currency().equals(to.currency())) {
-            throw new ApiException(ErrorCode.CURRENCY_MISMATCH,
-                    "Both accounts must use the same currency (" + from.currency() + " vs " + to.currency() + ")");
-        }
         String currency = resolveCurrency(request.currency(), from);
         MoneyRules.requireValidAmount("amount", request.amount(), currency);
+        // Across currencies both sides are recorded: what left one account and what reached the other.
+        BigDecimal toAmount = null;
+        String toCurrency = null;
+        if (!from.currency().equals(to.currency())) {
+            if (request.toAmount() == null) {
+                throw new FieldValidationException("toAmount", "is required: how much " + to.currency() + " arrived in '" + to.name() + "'");
+            }
+            MoneyRules.requireValidAmount("toAmount", request.toAmount(), to.currency());
+            toAmount = request.toAmount();
+            toCurrency = to.currency();
+        }
         return new TransactionDetails(request.amount(), currency, from.id(), to.id(), null,
                 resolveDate(userId, request.transactionDate(), current), request.transactionTime(),
-                clean(request.description()), null, null, clean(request.notes()), null, null, null);
+                clean(request.description()), null, null, clean(request.notes()), null, null, null, toAmount, toCurrency);
     }
 
     /** Amounts are stored in the account's currency. Conversion arrives with multi-currency support. */

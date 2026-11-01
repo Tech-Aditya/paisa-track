@@ -46,7 +46,9 @@ class DashboardIntegrationTest extends FinanceIntegrationTest {
                 .andExpect(jsonPath("$.data.periods.month.income").value(5000.00)) // expected salary not counted
                 .andExpect(jsonPath("$.data.periods.month.netCashFlow").value(3610.00))
                 .andExpect(jsonPath("$.data.savingsRate").value(72.20))
-                .andExpect(jsonPath("$.data.otherCurrencyTransactions").value(1))
+                .andExpect(jsonPath("$.data.unconvertedTransactions").value(1))
+                .andExpect(jsonPath("$.data.conversions[0].currency").value("USD"))
+                .andExpect(jsonPath("$.data.accounts.unconvertedCurrencies[0]").value("USD"))
                 .andExpect(jsonPath("$.data.accounts.totalAssets").value(13610.00))
                 .andExpect(jsonPath("$.data.accounts.netWorth").value(13610.00))
                 .andExpect(jsonPath("$.data.expectedIncome[0].expectedAmount").value(90000.00))

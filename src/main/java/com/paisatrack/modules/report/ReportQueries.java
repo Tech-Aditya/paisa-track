@@ -13,9 +13,9 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * Read-only aggregates for reports, computed in PostgreSQL over the ledger (one pass per section).
- * Only ACTIVE transactions in one currency count, the same rules as the transaction list, daily
- * summary and dashboard, so every figure reconciles with the entries behind it.
+ * Read-only aggregates for reports, computed in PostgreSQL over the ledger. Rows are grouped by
+ * currency and day so each can be converted with the rate for its own date; only ACTIVE
+ * transactions count, the same rules as the transaction list, daily summary and dashboard.
  */
 @Component
 class ReportQueries {
@@ -32,21 +32,28 @@ class ReportQueries {
     record Totals(BigDecimal income, long incomeCount, BigDecimal expense, long expenseCount, BigDecimal interest,
                   BigDecimal transfers, long transferCount, BigDecimal cardPayments, BigDecimal invested, BigDecimal withdrawn,
                   BigDecimal principalRepaid, BigDecimal disbursed, BigDecimal salary) {
+
+        static final Totals ZERO = new Totals(BigDecimal.ZERO, 0, BigDecimal.ZERO, 0, BigDecimal.ZERO, BigDecimal.ZERO, 0,
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
     }
 
-    record CategoryTotal(UUID categoryId, BigDecimal total, long count) {
+    /** Totals of one currency on one day; {@code entries} is how many transactions are behind them. */
+    record TotalsRow(String currency, LocalDate date, long entries, Totals totals) {
     }
 
-    record Point(LocalDate date, BigDecimal income, BigDecimal expense) {
+    record CategoryRow(String currency, LocalDate date, UUID categoryId, BigDecimal total, long count) {
     }
 
-    record Expense(UUID id, BigDecimal amount, LocalDate date, String description, String counterparty, UUID categoryId) {
+    record DayRow(String currency, LocalDate date, BigDecimal income, BigDecimal expense) {
+    }
+
+    record Expense(UUID id, String currency, BigDecimal amount, LocalDate date, String description, String counterparty, UUID categoryId) {
     }
 
     record AccountFlow(BigDecimal inflow, BigDecimal outflow) {
     }
 
-    record DebtActivity(BigDecimal lent, BigDecimal borrowed, BigDecimal repaidToYou, BigDecimal youRepaid) {
+    record DebtActivity(String currency, BigDecimal lent, BigDecimal borrowed, BigDecimal repaidToYou, BigDecimal youRepaid) {
     }
 
     private final NamedParameterJdbcTemplate jdbc;
@@ -59,10 +66,10 @@ class ReportQueries {
      * Every kind of money movement, kept apart: income, expenses (of which loan interest), transfers
      * (of which card bill payments and investments), loan principal and disbursements.
      */
-    Totals totals(UUID userId, String currency, LocalDate from, LocalDate to, Filter f) {
-        MapSqlParameterSource p = params(userId, currency, from, to);
-        return jdbc.queryForObject("""
-                select
+    List<TotalsRow> totals(UUID userId, LocalDate from, LocalDate to, Filter f) {
+        MapSqlParameterSource p = params(userId, from, to);
+        return jdbc.query("""
+                select t.currency, t.transaction_date, count(*) as entries,
                   coalesce(sum(t.amount) filter (where t.type = 'INCOME'), 0) as income,
                   count(*) filter (where t.type = 'INCOME') as income_count,
                   coalesce(sum(t.amount) filter (where t.type = 'EXPENSE'), 0) as expense,
@@ -80,74 +87,70 @@ class ReportQueries {
                 join accounts fa on fa.id = t.account_id
                 left join accounts ta on ta.id = t.to_account_id
                 left join income_sources s on s.id = t.income_source_id
-                where t.user_id = :userId and t.status = 'ACTIVE' and t.currency = :currency
-                  and t.transaction_date between :from and :to""" + filter(f, p),
-                p,
-                (rs, row) -> new Totals(rs.getBigDecimal("income"), rs.getLong("income_count"), rs.getBigDecimal("expense"),
-                        rs.getLong("expense_count"), rs.getBigDecimal("interest"), rs.getBigDecimal("transfers"),
-                        rs.getLong("transfer_count"), rs.getBigDecimal("card_payments"), rs.getBigDecimal("invested"),
-                        rs.getBigDecimal("withdrawn"), rs.getBigDecimal("principal"), rs.getBigDecimal("disbursed"),
-                        rs.getBigDecimal("salary")));
-    }
-
-    /** Entries in other currencies in the range: counted, never summed. */
-    long otherCurrencyCount(UUID userId, String currency, LocalDate from, LocalDate to) {
-        Long n = jdbc.queryForObject("""
-                select count(*) from transactions
-                where user_id = :userId and status = 'ACTIVE' and currency <> :currency
-                  and transaction_date between :from and :to""", params(userId, currency, from, to), Long.class);
-        return n == null ? 0 : n;
-    }
-
-    /** EXPENSE or INCOME totals rolled up to top-level categories, largest first. */
-    List<CategoryTotal> byCategory(UUID userId, String currency, LocalDate from, LocalDate to, String type, Filter f) {
-        MapSqlParameterSource p = params(userId, currency, from, to).addValue("type", type);
-        return jdbc.query("""
-                select coalesce(c.parent_id, c.id) as category_id, sum(t.amount) as total, count(*) as cnt
-                from transactions t join categories c on c.id = t.category_id
-                where t.user_id = :userId and t.status = 'ACTIVE' and t.currency = :currency and t.type = :type
+                where t.user_id = :userId and t.status = 'ACTIVE'
                   and t.transaction_date between :from and :to""" + filter(f, p) + """
 
-                group by 1 order by total desc""",
+                group by t.currency, t.transaction_date""",
                 p,
-                (rs, row) -> new CategoryTotal(rs.getObject("category_id", UUID.class), rs.getBigDecimal("total"), rs.getLong("cnt")));
+                (rs, row) -> new TotalsRow(rs.getString("currency"), rs.getObject("transaction_date", LocalDate.class), rs.getLong("entries"),
+                        new Totals(rs.getBigDecimal("income"), rs.getLong("income_count"), rs.getBigDecimal("expense"),
+                                rs.getLong("expense_count"), rs.getBigDecimal("interest"), rs.getBigDecimal("transfers"),
+                                rs.getLong("transfer_count"), rs.getBigDecimal("card_payments"), rs.getBigDecimal("invested"),
+                                rs.getBigDecimal("withdrawn"), rs.getBigDecimal("principal"), rs.getBigDecimal("disbursed"),
+                                rs.getBigDecimal("salary"))));
     }
 
-    /** Income and expense per day or per month; buckets without activity are absent. */
-    List<Point> series(UUID userId, String currency, LocalDate from, LocalDate to, boolean monthly, Filter f) {
-        MapSqlParameterSource p = params(userId, currency, from, to);
-        String bucket = monthly ? "date_trunc('month', t.transaction_date)::date" : "t.transaction_date";
-        return jdbc.query("select " + bucket + " as bucket," + """
+    /** EXPENSE or INCOME totals rolled up to top-level categories, per currency and day. */
+    List<CategoryRow> byCategory(UUID userId, LocalDate from, LocalDate to, String type, Filter f) {
+        MapSqlParameterSource p = params(userId, from, to).addValue("type", type);
+        return jdbc.query("""
+                select t.currency, t.transaction_date, coalesce(c.parent_id, c.id) as category_id, sum(t.amount) as total, count(*) as cnt
+                from transactions t join categories c on c.id = t.category_id
+                where t.user_id = :userId and t.status = 'ACTIVE' and t.type = :type
+                  and t.transaction_date between :from and :to""" + filter(f, p) + """
 
+                group by 1, 2, 3""",
+                p,
+                (rs, row) -> new CategoryRow(rs.getString("currency"), rs.getObject("transaction_date", LocalDate.class),
+                        rs.getObject("category_id", UUID.class), rs.getBigDecimal("total"), rs.getLong("cnt")));
+    }
+
+    /** Income and expense per currency and day; days without activity are absent. */
+    List<DayRow> daily(UUID userId, LocalDate from, LocalDate to, Filter f) {
+        MapSqlParameterSource p = params(userId, from, to);
+        return jdbc.query("""
+                select t.currency, t.transaction_date,
                   coalesce(sum(t.amount) filter (where t.type = 'INCOME'), 0) as income,
                   coalesce(sum(t.amount) filter (where t.type = 'EXPENSE'), 0) as expense
                 from transactions t
-                where t.user_id = :userId and t.status = 'ACTIVE' and t.currency = :currency
+                where t.user_id = :userId and t.status = 'ACTIVE'
                   and t.type in ('INCOME', 'EXPENSE') and t.transaction_date between :from and :to""" + filter(f, p) + """
 
-                group by 1 order by 1""",
+                group by 1, 2""",
                 p,
-                (rs, row) -> new Point(rs.getObject("bucket", LocalDate.class), rs.getBigDecimal("income"), rs.getBigDecimal("expense")));
+                (rs, row) -> new DayRow(rs.getString("currency"), rs.getObject("transaction_date", LocalDate.class),
+                        rs.getBigDecimal("income"), rs.getBigDecimal("expense")));
     }
 
-    /** The largest expenses, biggest first; ties go to the earliest recorded. */
-    List<Expense> topExpenses(UUID userId, String currency, LocalDate from, LocalDate to, int limit, Filter f) {
-        MapSqlParameterSource p = params(userId, currency, from, to).addValue("limit", limit);
+    /** The largest expenses of each currency, biggest first; ties go to the earliest recorded. */
+    List<Expense> topExpenses(UUID userId, LocalDate from, LocalDate to, int limit, Filter f) {
+        MapSqlParameterSource p = params(userId, from, to).addValue("limit", limit);
         return jdbc.query("""
-                select t.id, t.amount, t.transaction_date, t.description, t.counterparty, t.category_id
-                from transactions t
-                where t.user_id = :userId and t.status = 'ACTIVE' and t.currency = :currency and t.type = 'EXPENSE'
-                  and t.transaction_date between :from and :to""" + filter(f, p) + """
+                select id, currency, amount, transaction_date, description, counterparty, category_id from (
+                  select t.*, row_number() over (partition by t.currency order by t.amount desc, t.created_at) as rn
+                  from transactions t
+                  where t.user_id = :userId and t.status = 'ACTIVE' and t.type = 'EXPENSE'
+                    and t.transaction_date between :from and :to""" + filter(f, p) + """
 
-                order by t.amount desc, t.created_at limit :limit""",
+                ) ranked where rn <= :limit""",
                 p,
-                (rs, row) -> new Expense(rs.getObject("id", UUID.class), rs.getBigDecimal("amount"),
+                (rs, row) -> new Expense(rs.getObject("id", UUID.class), rs.getString("currency"), rs.getBigDecimal("amount"),
                         rs.getObject("transaction_date", LocalDate.class), rs.getString("description"),
                         rs.getString("counterparty"), rs.getObject("category_id", UUID.class)));
     }
 
-    /** Money in and out of each account in the range; a transfer counts on both sides. */
-    Map<UUID, AccountFlow> accountFlows(UUID userId, String currency, LocalDate from, LocalDate to) {
+    /** Money in and out of each account in the range, in the account's own currency; a transfer counts on both sides. */
+    Map<UUID, AccountFlow> accountFlows(UUID userId, LocalDate from, LocalDate to) {
         Map<UUID, AccountFlow> result = new HashMap<>();
         jdbc.query("""
                 select account_id, sum(inflow) as inflow, sum(outflow) as outflow from (
@@ -155,39 +158,42 @@ class ReportQueries {
                       case when type in ('INCOME', 'LOAN_DISBURSEMENT') then amount else 0 end as inflow,
                       case when type in ('INCOME', 'LOAN_DISBURSEMENT') then 0 else amount end as outflow
                     from transactions
-                    where user_id = :userId and status = 'ACTIVE' and currency = :currency and transaction_date between :from and :to
+                    where user_id = :userId and status = 'ACTIVE' and transaction_date between :from and :to
                     union all
-                    select to_account_id, amount, 0
+                    select to_account_id, coalesce(to_amount, amount), 0
                     from transactions
-                    where user_id = :userId and status = 'ACTIVE' and currency = :currency and type = 'TRANSFER'
+                    where user_id = :userId and status = 'ACTIVE' and type = 'TRANSFER'
                       and transaction_date between :from and :to
                 ) flows
                 group by account_id""",
-                params(userId, currency, from, to),
+                params(userId, from, to),
                 rs -> {
                     result.put(rs.getObject("account_id", UUID.class), new AccountFlow(rs.getBigDecimal("inflow"), rs.getBigDecimal("outflow")));
                 });
         return result;
     }
 
-    /** Lending and borrowing started, and repayments made either way, in the range. Never income or spending. */
-    DebtActivity debtActivity(UUID userId, String currency, LocalDate from, LocalDate to) {
-        MapSqlParameterSource p = params(userId, currency, from, to);
-        return jdbc.queryForObject("""
-                select
-                  (select coalesce(sum(principal), 0) from debts
-                   where user_id = :userId and currency = :currency and deleted_at is null and direction = 'LENT'
-                     and start_date between :from and :to) as lent,
-                  (select coalesce(sum(principal), 0) from debts
-                   where user_id = :userId and currency = :currency and deleted_at is null and direction = 'BORROWED'
-                     and start_date between :from and :to) as borrowed,
-                  coalesce(sum(r.amount) filter (where d.direction = 'LENT'), 0) as repaid_to_you,
-                  coalesce(sum(r.amount) filter (where d.direction = 'BORROWED'), 0) as you_repaid
-                from debt_repayments r join debts d on d.id = r.debt_id
-                where r.user_id = :userId and d.currency = :currency and d.deleted_at is null and r.voided_at is null
-                  and r.repayment_date between :from and :to""",
-                p,
-                (rs, row) -> new DebtActivity(rs.getBigDecimal("lent"), rs.getBigDecimal("borrowed"),
+    /** Lending and borrowing started, and repayments made either way, per currency. Never income or spending. */
+    List<DebtActivity> debtActivity(UUID userId, LocalDate from, LocalDate to) {
+        return jdbc.query("""
+                select currency, sum(lent) as lent, sum(borrowed) as borrowed, sum(repaid_to_you) as repaid_to_you, sum(you_repaid) as you_repaid
+                from (
+                  select currency,
+                    case when direction = 'LENT' then principal else 0 end as lent,
+                    case when direction = 'BORROWED' then principal else 0 end as borrowed,
+                    0 as repaid_to_you, 0 as you_repaid
+                  from debts where user_id = :userId and deleted_at is null and start_date between :from and :to
+                  union all
+                  select d.currency, 0, 0,
+                    case when d.direction = 'LENT' then r.amount else 0 end,
+                    case when d.direction = 'BORROWED' then r.amount else 0 end
+                  from debt_repayments r join debts d on d.id = r.debt_id
+                  where r.user_id = :userId and d.deleted_at is null and r.voided_at is null
+                    and r.repayment_date between :from and :to
+                ) activity
+                group by currency""",
+                params(userId, from, to),
+                (rs, row) -> new DebtActivity(rs.getString("currency"), rs.getBigDecimal("lent"), rs.getBigDecimal("borrowed"),
                         rs.getBigDecimal("repaid_to_you"), rs.getBigDecimal("you_repaid")));
     }
 
@@ -211,10 +217,9 @@ class ReportQueries {
         return sql.toString();
     }
 
-    private static MapSqlParameterSource params(UUID userId, String currency, LocalDate from, LocalDate to) {
+    private static MapSqlParameterSource params(UUID userId, LocalDate from, LocalDate to) {
         return new MapSqlParameterSource()
                 .addValue("userId", userId)
-                .addValue("currency", currency)
                 .addValue("from", from)
                 .addValue("to", to);
     }

@@ -40,7 +40,9 @@ public record ReportResponse(
         @Schema(description = "Null when the report is filtered") Lending lending,
         @Schema(description = "Null when the report is filtered") Loans loans,
         List<Insight> insights,
-        @Schema(description = "Entries in other currencies in the range: counted, not added") long otherCurrencyEntries) {
+        @Schema(description = "Other currencies converted into the report currency, with the rates used and what had no rate")
+        List<ConversionLine> conversions,
+        @Schema(description = "Entries left out because no exchange rate was available") long unconvertedEntries) {
 
     public enum Kind { DAILY, WEEKLY, MONTHLY, YEARLY, CUSTOM }
 
@@ -95,10 +97,21 @@ public record ReportResponse(
     public record Peak(LocalDate date, BigDecimal amount) {
     }
 
-    public record TopExpense(UUID id, BigDecimal amount, LocalDate date, String description, String merchant, String category) {
+    public record TopExpense(UUID id, @Schema(description = "In the report currency") BigDecimal amount, LocalDate date,
+                             String description, String merchant, String category,
+                             @Schema(description = "As recorded") BigDecimal originalAmount, String originalCurrency) {
     }
 
-    public record AccountLine(UUID id, String name, AccountType type, BigDecimal inflow, BigDecimal outflow, BigDecimal net,
+    /** One other currency: how many entries were converted, with which rates, and how many had no rate. */
+    public record ConversionLine(String currency, long convertedEntries, long missingEntries,
+                                 @Schema(description = "Earliest and latest rate dates used") LocalDate firstRateDate, LocalDate lastRateDate,
+                                 List<String> sources,
+                                 @Schema(description = "Earliest date with no rate available") LocalDate missingFrom) {
+    }
+
+    public record AccountLine(UUID id, String name, AccountType type,
+                              @Schema(description = "The account's own currency; account figures are never converted") String currency,
+                              BigDecimal inflow, BigDecimal outflow, BigDecimal net,
                               @Schema(description = "Balance now (for credit cards: amount owed)") BigDecimal currentBalance) {
     }
 

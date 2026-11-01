@@ -111,7 +111,8 @@ class ReportIntegrationTest extends FinanceIntegrationTest {
         assertThat(num(r, "$.data.lending.borrowed")).isEqualByComparingTo("1000");
         assertThat(num(r, "$.data.loans.interestPaid")).isEqualByComparingTo(interest);
         assertThat((boolean) JsonPath.read(r, "$.data.complete")).isTrue();
-        assertThat((int) JsonPath.read(r, "$.data.otherCurrencyEntries")).isEqualTo(1);
+        assertThat((int) JsonPath.read(r, "$.data.unconvertedEntries")).isEqualTo(1);
+        assertThat((List<String>) JsonPath.read(r, "$.data.insights[*].code")).contains("UNCONVERTED");
 
         // Every breakdown adds back up to the totals.
         assertThat(sum(JsonPath.read(r, "$.data.expenseByCategory[*].total"))).isEqualByComparingTo(expense);

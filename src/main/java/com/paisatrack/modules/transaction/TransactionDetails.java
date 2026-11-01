@@ -20,5 +20,7 @@ record TransactionDetails(
         String notes,
         UUID incomeSourceId,
         LocalDate incomePeriod,
-        UUID loanId) {
+        UUID loanId,
+        BigDecimal toAmount,
+        String toCurrency) {
 }

@@ -37,7 +37,7 @@ class TransactionSqlQueries implements AccountFlowProvider, CategoryUsageProvide
                     select account_id, case when type in ('INCOME', 'LOAN_DISBURSEMENT') then amount else -amount end as delta
                     from transactions where user_id = :userId and status = 'ACTIVE'
                     union all
-                    select to_account_id, amount
+                    select to_account_id, coalesce(to_amount, amount)
                     from transactions where user_id = :userId and status = 'ACTIVE' and type = 'TRANSFER'
                 ) flows
                 group by account_id""",

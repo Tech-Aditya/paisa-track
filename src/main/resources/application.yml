@@ -106,5 +106,9 @@ paisatrack:
     generation-cron: "0 0 * * * *"        # hourly: expected occurrences ahead of time
   notifications:
     cron: "0 10 * * * *"                  # hourly: reminders, in each user's timezone
+  fx:
+    provider: ${FX_PROVIDER:none}         # "frankfurter" fetches ECB reference rates daily; none = manual rates only
+    frankfurter-url: https://api.frankfurter.dev/v1
+    refresh-cron: "0 30 17 * * *"         # daily, after the ECB publishes (~16:00 CET)
   cors:
     allowed-origins: []

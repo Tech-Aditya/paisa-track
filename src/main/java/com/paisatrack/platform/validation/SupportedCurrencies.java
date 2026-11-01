@@ -29,6 +29,11 @@ public final class SupportedCurrencies {
     private SupportedCurrencies() {
     }
 
+    /** Every supported ISO 4217 code. */
+    public static java.util.Set<String> codes() {
+        return CODES;
+    }
+
     public static boolean isSupported(String code) {
         return code != null && ISO_CODE.matcher(code).matches() && CODES.contains(code);
     }

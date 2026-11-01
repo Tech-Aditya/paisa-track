@@ -31,6 +31,8 @@ public record TransactionResponse(
         @Schema(description = "Income only: the source this receipt settles") SourceInfo incomeSource,
         @Schema(description = "Income only: pay period settled", type = "string", example = "2026-10") YearMonth incomePeriod,
         @Schema(description = "Set when a loan created this entry; change it from the loan") UUID loanId,
+        @Schema(description = "Cross-currency transfers: amount that arrived in the destination account") BigDecimal toAmount,
+        String toCurrency,
         Instant voidedAt,
         String voidReason,
         Instant createdAt,

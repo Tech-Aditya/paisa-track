@@ -293,7 +293,7 @@ public class RecurringService {
                         rule.getCurrency(), r.transactionDate(), null, description, rule.getCounterparty(), rule.getPaymentMethod(),
                         notes, null, null), null);
                 case TRANSFER -> transactions.createTransfer(userId, new TransferRequest(amount, accountId, rule.getToAccountId(),
-                        rule.getCurrency(), r.transactionDate(), null, description, notes), null);
+                        rule.getCurrency(), null, r.transactionDate(), null, description, notes), null);
             };
             o.confirm(tx.id(), tx.amount(), clock.instant(), null);
             occurrences.flush();

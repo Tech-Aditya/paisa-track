@@ -142,6 +142,10 @@ a { color: var(--accent); }
 .btn.primary.danger-fill { background: var(--expense); box-shadow: none; }
 dialog.confirm { width: min(440px, calc(100vw - 24px)); }
 .confirm-text { line-height: 1.6; }
+.small-note { font-size: 12.5px; margin-top: 8px; }
+.rate-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.rates-title { margin: 18px 0 6px; }
+select.input.compact { width: auto; height: 36px; padding: 0 10px; }
 .field .err { margin-top: 2px; }
 kbd { margin-left: auto; padding: 1px 6px; border-radius: 5px; font: 600 11px/16px ui-monospace, monospace; background: #ffffff26; }
 .btn.sm { height: 30px; padding: 0 10px; font-size: 13px; border-radius: 8px; }

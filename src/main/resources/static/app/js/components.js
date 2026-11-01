@@ -35,6 +35,7 @@ export function txRow(t, actions = null, onOpen = null) {
             el('div', { class: 'meta', text: meta || '—' })),
         el('div', {},
             el('div', { class: `amount num ${t.type === 'EXPENSE' ? 'neg' : t.type === 'INCOME' ? 'pos' : ''}`, text: sign + money(t.amount, t.currency) }),
+            t.toAmount ? el('div', { class: 'meta num', text: `→ ${money(t.toAmount, t.toCurrency)}` }) : null,
             t.status === 'VOIDED' ? el('div', { class: 'meta', text: 'Deleted' }) : null),
         actions);
 }

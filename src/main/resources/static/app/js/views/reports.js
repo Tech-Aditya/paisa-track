@@ -6,7 +6,7 @@ import { dailyBars, trendBars } from '../charts.js';
 import { card } from '../components.js';
 import { el, empty, field, fill, icon, input, segmented, select, skeleton } from '../dom.js';
 import { isoDate, money, plural, shortDate, titleCase } from '../format.js';
-import { categoryOptions, store } from '../store.js';
+import { categoryOptions, currencyOptions, store } from '../store.js';
 
 const KINDS = [
     { value: 'daily', label: 'Day' }, { value: 'weekly', label: 'Week' }, { value: 'monthly', label: 'Month' },
@@ -19,7 +19,7 @@ const TYPES = [
 const TONE_ICON = { POSITIVE: 'check', WARNING: 'alert', NEUTRAL: 'trend' };
 const fmt = (iso, opts) => new Date(`${iso}T00:00:00`).toLocaleDateString('en-IN', opts);
 
-const state = { kind: 'monthly', anchor: null, from: '', to: '', categoryId: '', accountId: '', type: '' };
+const state = { kind: 'monthly', anchor: null, from: '', to: '', categoryId: '', accountId: '', type: '', currency: '' };
 
 /** Moves the anchor date one period back or forward. */
 function shift(anchor, kind, step) {
@@ -33,11 +33,13 @@ function shift(anchor, kind, step) {
 
 function url() {
     const a = state.anchor;
-    if (state.kind === 'daily') return `/reports/daily?date=${a}`;
-    if (state.kind === 'weekly') return `/reports/weekly?date=${a}`;
-    if (state.kind === 'monthly') return `/reports/monthly?month=${a.slice(0, 7)}`;
-    if (state.kind === 'yearly') return `/reports/yearly?year=${a.slice(0, 4)}`;
+    const cur = state.currency ? `&currency=${state.currency}` : '';
+    if (state.kind === 'daily') return `/reports/daily?date=${a}${cur}`;
+    if (state.kind === 'weekly') return `/reports/weekly?date=${a}${cur}`;
+    if (state.kind === 'monthly') return `/reports/monthly?month=${a.slice(0, 7)}${cur}`;
+    if (state.kind === 'yearly') return `/reports/yearly?year=${a.slice(0, 4)}${cur}`;
     const p = new URLSearchParams({ from: state.from, to: state.to });
+    if (state.currency) p.set('currency', state.currency);
     ['categoryId', 'accountId', 'type'].forEach((k) => { if (state[k]) p.set(k, state[k]); });
     return `/reports/custom?${p}`;
 }
@@ -54,7 +56,9 @@ export async function renderReports(root) {
     const today = isoDate(new Date());
     state.anchor ??= today;
     if (!state.from) { state.to = today; state.from = shift(today, 'monthly', -1); }
-    const [accounts, expenseCats, incomeCats] = await Promise.all([store.accounts(), store.expenseCategories(), store.incomeCategories()]);
+    const [accounts, expenseCats, incomeCats, me, currencies] = await Promise.all([store.accounts(), store.expenseCategories(),
+        store.incomeCategories(), store.me(), store.currencies()]);
+    const used = [...new Set([me.preferences.defaultCurrency, ...accounts.map((a) => a.currency)])];
 
     const nav = state.kind === 'custom'
         ? el('form', { class: 'report-filters', onsubmit: (e) => {
@@ -76,6 +80,13 @@ export async function renderReports(root) {
     const head = el('header', { class: 'page-head' },
         el('div', {}, el('h1', { text: 'Reports' }), el('p', { text: 'Built from recorded transactions only. Plans and expected income never count.' })),
         el('div', { class: 'head-actions' },
+            used.length > 1 || state.currency
+                ? select('reportCurrency', [{ group: 'Report in', options: used.map((code) => ({ value: code, label: code,
+                    selected: code === (state.currency || me.preferences.defaultCurrency) })) }],
+                { class: 'input compact', 'aria-label': 'Report currency', onchange: (e) => {
+                    state.currency = e.target.value === me.preferences.defaultCurrency ? '' : e.target.value; reload();
+                } })
+                : null,
             segmented(KINDS, state.kind, (v) => { state.kind = v; reload(); }, 'Report period')));
     const body = el('div', { class: 'stack' },
         el('div', { class: 'kpis' }, [1, 2, 3, 4].map(() => el('section', { class: 'card' }, skeleton(14, '40%'), skeleton(28)))),
@@ -162,7 +173,10 @@ function content(r) {
         r.topExpenses.length ? el('div', { class: 'col-6' }, topCard(r)) : null);
 
     const note = el('p', { class: 'faint report-note' },
-        r.basis + (r.otherCurrencyEntries ? ` ${plural(r.otherCurrencyEntries, 'entry', 'entries')} in other currencies aren't included.` : ''),
+        r.basis,
+        ...r.conversions.filter((x) => x.convertedEntries).map((x) => ` ${x.currency}: ${plural(x.convertedEntries, 'entry', 'entries')} converted`
+            + ` with rates from ${shortDate(x.firstRateDate)}${x.lastRateDate !== x.firstRateDate ? ` to ${shortDate(x.lastRateDate)}` : ''}.`),
+        r.unconvertedEntries ? ` ${plural(r.unconvertedEntries, 'entry', 'entries')} had no exchange rate and aren't included.` : '',
         ` Compared with ${shortDate(cmp.from)} – ${shortDate(cmp.to)}.`);
     return [kpis, insights, grid, note];
 }
@@ -215,15 +229,15 @@ function movements(r) {
 
 function accountsCard(r) {
     const c = r.currency;
-    if (!r.accounts.length) return card('Accounts', {}, empty('No accounts in this currency.', 'wallet'));
+    if (!r.accounts.length) return card('Accounts', {}, empty('No accounts yet.', 'wallet'));
     return card('Accounts', { sub: 'money in and out' },
         el('div', { class: 'table-wrap' }, el('table', { class: 'schedule report-table' },
             el('thead', {}, el('tr', {}, ['Account', 'In', 'Out', 'Balance now'].map((h) => el('th', { text: h })))),
             el('tbody', {}, r.accounts.map((a) => el('tr', {},
-                el('td', {}, el('div', { text: a.name }), el('small', { class: 'faint', text: titleCase(a.type) })),
-                el('td', { class: 'num pos', text: Number(a.inflow) ? money(a.inflow, c) : '—' }),
-                el('td', { class: 'num neg', text: Number(a.outflow) ? money(a.outflow, c) : '—' }),
-                el('td', { class: 'num', text: money(a.currentBalance, c) })))))));
+                el('td', {}, el('div', { text: a.name }), el('small', { class: 'faint', text: `${titleCase(a.type)} · ${a.currency}` })),
+                el('td', { class: 'num pos', text: Number(a.inflow) ? money(a.inflow, a.currency) : '—' }),
+                el('td', { class: 'num neg', text: Number(a.outflow) ? money(a.outflow, a.currency) : '—' }),
+                el('td', { class: 'num', text: money(a.currentBalance, a.currency) })))))));
 }
 
 function budgetsCard(r) {
@@ -245,6 +259,7 @@ function topCard(r) {
         el('div', { class: 'tile-icon expense' }, icon('down')),
         el('div', { class: 'grow' },
             el('div', { class: 'title', text: t.merchant || t.description || t.category || 'Expense' }),
-            el('div', { class: 'meta', text: [t.category, shortDate(t.date)].filter(Boolean).join(' · ') })),
+            el('div', { class: 'meta', text: [t.category, shortDate(t.date),
+                t.originalCurrency !== c ? money(t.originalAmount, t.originalCurrency) : null].filter(Boolean).join(' · ') })),
         el('div', { class: 'amount num', text: money(t.amount, c) })))));
 }

@@ -274,6 +274,7 @@ public class TransactionQueryService {
                 sourceInfo(sourceRefs, t.getIncomeSourceId()),
                 t.getIncomePeriod() == null ? null : YearMonth.from(t.getIncomePeriod()),
                 t.getLoanId(),
+                t.getToAmount() == null ? null : MoneyRules.scaled(t.getToAmount(), t.getToCurrency()), t.getToCurrency(),
                 t.getVoidedAt(), t.getVoidReason(), t.getCreatedAt(), t.getUpdatedAt())).toList();
     }
 

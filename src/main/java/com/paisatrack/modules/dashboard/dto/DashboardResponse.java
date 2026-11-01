@@ -24,7 +24,8 @@ public record DashboardResponse(
         String basis,
         Periods periods,
         @Schema(description = "Month net cash flow / month income, as a percentage; null with no income") BigDecimal savingsRate,
-        @Schema(description = "This month's transactions in other currencies, not included in the figures") long otherCurrencyTransactions,
+        @Schema(description = "This month's entries left out because no exchange rate was available") long unconvertedTransactions,
+        @Schema(description = "This month's other currencies: converted and missing entries") List<Conversion> conversions,
         AccountsOverview accounts,
         List<BudgetResponse> budgets,
         List<ExpectedIncomeResponse> expectedIncome,
@@ -36,6 +37,9 @@ public record DashboardResponse(
         @Schema(description = "Loans in your default currency; outstanding principal is already in net worth") LoansOverview loans,
         @Schema(description = "Recurring bills and income still expected (plans, not in any total)") RecurringOverview recurring) {
 
+    public record Conversion(String currency, long convertedEntries, long missingEntries, LocalDate latestRateDate, LocalDate missingFrom) {
+    }
+
     public record Periods(Period today, Period week, Period month,
                           @Schema(description = "The from/to range, when one was requested") Period selected) {
     }
@@ -46,11 +50,13 @@ public record DashboardResponse(
 
     public record AccountsOverview(BigDecimal totalAssets, BigDecimal totalLiabilities,
                                    @Schema(description = "Outstanding loan principal") BigDecimal loanOutstanding, BigDecimal netWorth,
-                                   List<AccountBalance> accounts) {
+                                   List<AccountBalance> accounts,
+                                   @Schema(description = "Currencies with no rate today; their accounts aren't in the totals") List<String> unconvertedCurrencies) {
     }
 
     public record AccountBalance(UUID id, String name, AccountType type, AccountNature nature, String currency,
-                                 BigDecimal currentBalance) {
+                                 BigDecimal currentBalance,
+                                 @Schema(description = "In your default currency at today's rate; null for that currency or with no rate") BigDecimal convertedBalance) {
     }
 
     public record CategorySpending(UUID categoryId, String name, BigDecimal total, long count,

@@ -19,7 +19,9 @@ public record TransferRequest(
         @NotNull BigDecimal amount,
         @NotNull UUID fromAccountId,
         @NotNull UUID toAccountId,
-        @Schema(description = "Both accounts must use this currency; defaults to it") @CurrencyCode String currency,
+        @Schema(description = "Currency of 'amount': the source account's; defaults to it") @CurrencyCode String currency,
+        @Schema(description = "Required when the accounts use different currencies: the amount that arrived, in the destination account's currency")
+        BigDecimal toAmount,
         @Schema(description = "Defaults to today in your timezone on create; required on update") LocalDate transactionDate,
         LocalTime transactionTime,
         @Size(max = 200) String description,

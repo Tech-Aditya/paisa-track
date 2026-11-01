@@ -3,10 +3,10 @@
 A personal finance, daily expense and money management API. It is built as a
 modular Spring Boot monolith on PostgreSQL.
 
-> **Status:** Phases 1-7 are complete: foundation and security; accounts,
+> **Status:** Phases 1-8 are complete: foundation and security; accounts,
 > categories and transactions; salary, budgets and the dashboard; lending and
 > borrowing; loans and EMIs; recurring transactions and notifications; reports
-> and analytics. Multi-currency support comes next, in Phase 8.
+> and analytics; multi-currency. Frontend completion comes next, in Phase 9.
 > Design decisions are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Tech stack
@@ -106,6 +106,7 @@ Environment variables:
 | `PORT` | no | HTTP port in prod (default 8080) |
 | `APP_PUBLIC_URL` | no | Public address (e.g. `https://paisatrack.example.com`), shown in the startup summary |
 | `LOG_FILE` | no | Log file path for dev, or for prod with the `logfile` profile (defaults `logs/paisatrack.log` / `logs/paisatrack.json`; prod rotates at 50 MB × 14) |
+| `FX_PROVIDER` | no | `frankfurter` fetches ECB reference rates daily (free, no key); default `none` = your own rates only |
 | `BANNER_MODE` | no | Prod banner: `off` (default, keeps stdout pure JSON) or `console` |
 | `APP_ENVIRONMENT` | no | `service.environment` in logs (default `production`) |
 | `SLOW_REQUEST_THRESHOLD` | no | Requests at least this slow log at WARN (default `2s`) |
@@ -279,6 +280,22 @@ compared with the same days of last month), and adds fact-based insights.
 
 Account type `INVESTMENT` (mutual funds, stocks, PPF, FDs): transfers into it are investments, never spending.
 
+**Currencies and exchange rates** (all bearer). Every record keeps its own currency; nothing is ever rewritten.
+Totals in another currency are converted with the latest rate on or before each entry's date; entries without a rate
+are listed as unconverted, never added raw.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/currencies` | ISO 4217 currencies in use, with symbol and decimal places |
+| GET, POST | `/exchange-rates` | Your rates plus provider rates (`currency=` to filter); add your own rate for a pair and day |
+| DELETE | `/exchange-rates/{id}` | Delete one of your rates |
+| GET | `/exchange-rates/convert?amount=&from=&to=&date=` | Original amount, rate, rate date, source and converted amount, or `available: false` with a reason |
+| GET | `/exchange-rates/provider` | Whether an online provider is configured |
+| POST | `/exchange-rates/refresh` | Fetch the provider's latest rates now |
+
+Transfers between accounts in different currencies take `toAmount` (what arrived); both sides are stored.
+Reports accept `currency=` to report in another currency.
+
 **Notifications** (all bearer). In-app reminders for EMIs, bills, subscriptions, recurring items, lending, borrowing,
 budget thresholds and expected salary. Checked hourly in each user's timezone; one notification per item and stage.
 
@@ -333,12 +350,12 @@ src/main/java/com/paisatrack/
     <module>/dto/        request and response records
     <module>/web/        REST controllers
     auth, user, account, category, transaction, income, budget, people, debt, loan, recurring,
-                         notification, report, dashboard
+                         notification, report, currency, dashboard
 src/main/resources/
   application.yml               shared settings
   application-dev.yml           local development (default)
   application-prod.yml          production
-  db/migration/                 Flyway migrations (V1 … V12)
+  db/migration/                 Flyway migrations (V1 … V13)
   logback-spring.xml            logging per profile
   banner.txt                    startup banner
   static/app/                   web app: index.html, css/, js/ (ES modules, no build step)
@@ -371,7 +388,11 @@ inserted as text.
   amount, date and account) and **Skip**; each rule opens its dates, edit, pause,
   resume, stop, delete and undo.
 - **Notifications:** a bell with an unread badge opens reminders; each links to its page.
-- **Settings:** profile, currency, timezone, week start, theme, reminder preferences, password.
+- **Settings:** profile, currency (every ISO currency), timezone, week start, theme, exchange
+  rates (add, delete, fetch from the provider when on), reminder preferences, password.
+- **Multi-currency:** accounts in any currency; transfers across currencies ask for the
+  amount received; the overview and reports convert other currencies (≈ amounts on
+  foreign accounts) and say plainly what had no rate.
 - **Loans:** outstanding, monthly EMI and interest this year; EMIs missed or due
   with one-click **Pay**; each loan opens its schedule, payments, **Pay EMI**,
   **Prepay**, void-latest and delete. Adding a loan shows a live EMI preview.

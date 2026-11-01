@@ -33,6 +33,7 @@ Modules depend on platform, never the reverse.
 | `recurring` | Recurring rules (rent, bills, subscriptions, SIPs), expected occurrences, confirm/skip, generation job |
 | `notification` | In-app reminders from every module, read state, per-type preferences, reminder job |
 | `report` | Daily/weekly/monthly/yearly/custom reports, like-for-like comparisons, insights |
+| `currency` | Currency reference data, exchange rates (manual and provider), conversion |
 | `dashboard` | Read-only home-screen aggregates |
 
 | Platform (`platform.*`) | Responsibility |
@@ -49,7 +50,8 @@ Modules depend on platform, never the reverse.
 Dependencies point one way: `auth → user`, `transaction → income, account, category, user`,
 `budget → transaction`, `debt → people, user`, `loan → transaction, account, category`,
 `recurring → transaction, account, category`, `notification → loan, recurring, debt, budget, income, user`,
-`report → account, budget, category, debt, loan, user` (plus read-only SQL over the ledger tables),
+`report → account, budget, category, currency, debt, loan, user` (plus read-only SQL over the ledger tables),
+`currency → user`, `dashboard → currency` too,
 `dashboard → everything it summarises`. Every module may use `platform`.
 The `user` module never calls `auth`. When a password changes, `user`
 publishes a `PasswordChangedEvent`. `auth` handles it in the same database
@@ -68,7 +70,7 @@ alongside `CategoryUsageProvider` (a loan's interest category can't be deleted).
 On registration, `UserRegisteredEvent` seeds a default Cash account and the
 default categories in the same transaction.
 
-Planned modules are `report`, `currency` and `attachment`. Each will
+The planned module is `attachment`. Each will
 follow the same layout.
 
 ## API conventions
@@ -335,6 +337,38 @@ How it works:
 - Sections that depend on other modules (budgets, salary, lending, loans) are left out of filtered
   custom reports, where they would not match the filter.
 
+## Multi-currency (Phase 8)
+
+Decisions confirmed with the product owner:
+
+- **Rates: manual plus an optional provider.** Users can always enter a rate. An `ExchangeRateProvider`
+  (Frankfurter, ECB reference rates, no key) fetches daily when `FX_PROVIDER=frankfurter`; it is off by
+  default, so the app never needs the network. Rates are never hardcoded.
+- **Each entry converts at the rate of its own date**: the latest rate on or before it. Past totals don't
+  move when today's rate does.
+- **Cross-currency transfers record both sides**: `amount` in the source currency and `to_amount` in the
+  destination's; the implied rate is derived. Still never income or spending.
+- **Combined totals in the default currency** on the dashboard and in reports (which can also run in any
+  other currency). Entries without a rate are listed as unconverted, with the earliest date lacking one, and
+  are never added unconverted.
+
+How it works:
+
+- **Nothing is rewritten.** Every account, transaction, budget, loan and debt keeps its own currency.
+  Changing the default currency only changes how totals are shown.
+- **Rate lookup** (`RateBook`): for a pair and date, the latest manual or provider rate on or before it,
+  direct or inverse, or crossed through the provider's base (EUR). The latest day wins; on the same day a
+  manual rate wins. Manual rates are private; provider rates are shared and stored once per pair and day
+  (an upsert, so repeated fetches are harmless).
+- **Conversions are explained.** A single conversion returns the original amount and currency, rate, rate
+  date, source and converted amount. Reports and the dashboard list, per other currency, how many entries
+  were converted, the range of rate dates used and how many had no rate.
+- **Converted aggregation.** Report and dashboard queries group by currency and day; each group is
+  converted with that day's rate and then summed, so nothing loads individual transactions into memory.
+  Account figures (balances, money in and out) stay in the account's own currency; net worth converts each
+  currency's totals at today's rate.
+- Budgets count spending in their own currency only.
+
 ## Observability
 
 - Every request gets an `X-Request-Id`. A safe id sent by the client is
@@ -382,8 +416,9 @@ How it works:
   and void.
 - **Assets bought with a loan aren't tracked** (no house or car value yet), so a home loan
   without a disbursement account makes net worth negative.
-- **Reports are single-currency.** Consolidated reports across currencies need exchange rates
-  (Phase 8). Exports (PDF, Excel, CSV) come in Phase 10.
+- **Exports** (PDF, Excel, CSV) come in Phase 10.
+- **Budgets don't convert.** A budget only counts spending in its own currency.
+- **Provider rates are daily reference rates** (ECB, about 30 currencies), not live market or card rates.
 - **Account balances in reports are current balances**, next to the period's money in and out;
   balance-as-of-a-date is not computed.
 - **Reminders are in-app only.** Email/push delivery can hang off the notifications table later.

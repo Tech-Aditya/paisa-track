@@ -3,7 +3,7 @@
 import { api } from './api.js';
 import { confirmDialog, el, field, input, openSheet, segmented, select, toast } from './dom.js';
 import { isoDate, parseAmount, titleCase } from './format.js';
-import { accountOptions, categoryOptions, store } from './store.js';
+import { accountOptions, categoryOptions, currencyOptions, store } from './store.js';
 
 const value = (form, name) => {
     const v = form.elements.namedItem(name)?.value?.trim();
@@ -78,10 +78,25 @@ export async function openTransactionDialog({ type = 'EXPENSE', preset = {}, exi
             const note = () => field('Description', input('description', { maxlength: 200, placeholder: 'Optional', value: p.description ?? '' }), { span: true });
 
             if (current === 'TRANSFER') {
+                // Across currencies the amount that arrived is entered too; the rate is implied.
+                const received = field('Amount received', input('toAmount', { class: 'input', inputmode: 'decimal', placeholder: '0.00',
+                    value: existing?.toAmount ?? '' }));
+                const currencyOf = (id) => accounts.find((a) => a.id === id)?.currency;
+                const sync = () => {
+                    const f = received.closest('form');
+                    const fromC = currencyOf(f?.elements.namedItem('fromAccountId').value);
+                    const toC = currencyOf(f?.elements.namedItem('toAccountId').value);
+                    const cross = fromC && toC && fromC !== toC;
+                    received.hidden = !cross;
+                    received.querySelector('span').textContent = cross ? `Amount received (${toC})` : 'Amount received';
+                };
+                queueMicrotask(sync);
                 return [typeSwitch, amountField, el('div', { class: 'form-grid' },
-                    field('From account', select('fromAccountId', accountChoices(accounts, p.accountId ?? lastAccount.get('TRANSFER', accounts), existing?.account))),
+                    field('From account', select('fromAccountId', accountChoices(accounts, p.accountId ?? lastAccount.get('TRANSFER', accounts), existing?.account),
+                        { onchange: sync })),
                     field('To account', select('toAccountId', accountChoices(accounts,
-                        p.toAccountId ?? accounts.find((a) => !a.defaultAccount)?.id, existing?.toAccount))),
+                        p.toAccountId ?? accounts.find((a) => !a.defaultAccount)?.id, existing?.toAccount), { onchange: sync })),
+                    received,
                     date, note()),
                 el('p', { class: 'faint', text: 'Transfers move money between your own accounts. They are never income or spending — use one to pay a credit card bill.' })];
             }
@@ -115,7 +130,8 @@ export async function openTransactionDialog({ type = 'EXPENSE', preset = {}, exi
             if (existing?.paymentMethod && current !== 'TRANSFER') common.paymentMethod = existing.paymentMethod;
             let body;
             if (current === 'TRANSFER') {
-                body = { ...common, fromAccountId: value(form, 'fromAccountId'), toAccountId: value(form, 'toAccountId') };
+                body = { ...common, fromAccountId: value(form, 'fromAccountId'), toAccountId: value(form, 'toAccountId'),
+                    toAmount: form.elements.namedItem('toAmount')?.closest('.field')?.hidden ? null : amount(form, 'toAmount') };
             } else if (current === 'INCOME') {
                 body = {
                     ...common, incomeSourceId: value(form, 'incomeSourceId'), categoryId: value(form, 'categoryId'),
@@ -175,7 +191,7 @@ export async function openBudgetDialog({ onSaved }) {
 const ACCOUNT_TYPES = ['SAVINGS', 'CURRENT', 'CREDIT_CARD', 'CASH', 'WALLET', 'INVESTMENT', 'OTHER'];
 
 export async function openAccountDialog({ onSaved }) {
-    const me = await store.me();
+    const [me, currencies] = await Promise.all([store.me(), store.currencies()]);
     let type = 'SAVINGS';
     const sheet = openSheet({
         title: 'New account',
@@ -185,7 +201,7 @@ export async function openAccountDialog({ onSaved }) {
             el('div', { class: 'form-grid' },
                 field('Type', select('type', ACCOUNT_TYPES.map((t) => ({ value: t, label: titleCase(t), selected: t === type })),
                     { onchange: (e) => { type = e.target.value; sheet.render(); } })),
-                field('Currency', input('currency', { maxlength: 3, value: me.preferences.defaultCurrency, autocapitalize: 'characters' })),
+                field('Currency', select('currency', currencyOptions(currencies, me.preferences.defaultCurrency))),
                 field(type === 'CREDIT_CARD' ? 'Amount owed now' : 'Current balance', input('openingBalance', { inputmode: 'decimal', placeholder: '0.00' })),
                 type === 'CREDIT_CARD' ? field('Credit limit', input('creditLimit', { inputmode: 'decimal', placeholder: 'Optional' })) : null,
                 field('Bank / provider', input('institution', { maxlength: 100, placeholder: 'Optional' })),

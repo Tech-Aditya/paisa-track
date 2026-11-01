@@ -1,10 +1,10 @@
-// Settings: profile, preferences (currency, timezone, week start, theme), reminder preferences, password.
+// Settings: profile, preferences (currency, timezone, week start, theme), exchange rates, reminders, password.
 
 import { api, errorText } from '../api.js';
 import { card } from '../components.js';
-import { el, empty, field, fill, input, select, skeleton, toast } from '../dom.js';
-import { titleCase } from '../format.js';
-import { store } from '../store.js';
+import { confirmDialog, el, empty, field, fill, icon, input, select, skeleton, toast } from '../dom.js';
+import { isoDate, parseAmount, shortDate, titleCase } from '../format.js';
+import { currencyOptions, store } from '../store.js';
 
 const TYPES = {
     EMI: ['Loan EMIs', 'Before each EMI and when one is missed'],
@@ -17,7 +17,6 @@ const TYPES = {
     SALARY: ['Salary & income', 'When expected income is due or late'],
 };
 const DAYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
-const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD', 'JPY', 'AUD', 'CAD'];
 
 export async function renderSettings(root, { onThemeChange, onPasswordChanged, onProfileChanged } = {}) {
     const head = el('header', { class: 'page-head' },
@@ -26,8 +25,9 @@ export async function renderSettings(root, { onThemeChange, onPasswordChanged, o
 
     let me;
     let prefs;
+    let currencies;
     try {
-        [me, prefs] = await Promise.all([api.get('/users/me'), api.get('/notifications/preferences')]);
+        [me, prefs, currencies] = await Promise.all([api.get('/users/me'), api.get('/notifications/preferences'), store.currencies()]);
     } catch (e) {
         fill(root, head, el('div', { class: 'card' }, empty(errorText(e), 'alert')));
         return;
@@ -54,7 +54,7 @@ export async function renderSettings(root, { onThemeChange, onPasswordChanged, o
         onThemeChange?.(theme);
     }, 'Preferences saved') },
     el('div', { class: 'form-grid' },
-        field('Default currency', select('defaultCurrency', [...new Set([p.defaultCurrency, ...CURRENCIES])].map((c) => ({ value: c, label: c, selected: c === p.defaultCurrency })))),
+        field('Default currency', select('defaultCurrency', currencyOptions(currencies, p.defaultCurrency))),
         field('Timezone', select('timezone', zones.map((z) => ({ value: z, label: z.replaceAll('_', ' '), selected: z === p.timezone })))),
         field('Week starts on', select('weekStartDay', DAYS.map((d) => ({ value: d, label: titleCase(d), selected: d === p.weekStartDay })))),
         field('Theme', select('theme', ['SYSTEM', 'LIGHT', 'DARK'].map((t) => ({ value: t, label: titleCase(t), selected: t === p.theme }))))),
@@ -96,8 +96,62 @@ export async function renderSettings(root, { onThemeChange, onPasswordChanged, o
     fill(root, head, el('div', { class: 'stack' },
         card('Profile', {}, profile),
         card('Preferences', {}, preferences),
+        ratesCard(currencies, p.defaultCurrency),
         card('Reminders', { sub: 'in-app, checked hourly' }, reminders),
         card('Password', {}, password)));
+}
+
+/** Your own rates (and the provider's, when one is configured), used to convert other currencies. */
+function ratesCard(currencies, home) {
+    const list = el('div', {}, skeleton(40));
+    const providerSlot = el('div', { class: 'head-actions' });
+    const load = async () => {
+        try {
+            const [rates, provider] = await Promise.all([api.get('/exchange-rates'), api.get('/exchange-rates/provider')]);
+            fill(providerSlot, provider.enabled
+                ? el('button', { class: 'btn sm', type: 'button', onclick: async () => {
+                    try {
+                        const r = await api.post('/exchange-rates/refresh');
+                        toast(`Fetched ${r.stored} rates for ${shortDate(r.date)}`);
+                        load();
+                    } catch (e) { toast(errorText(e), 'error'); }
+                } }, icon('repeat'), 'Fetch latest rates')
+                : el('span', { class: 'faint small-note', text: 'Online rates are off; add rates yourself.' }));
+            fill(list, rates.length
+                ? el('div', { class: 'table-wrap' }, el('table', { class: 'schedule report-table' },
+                    el('thead', {}, el('tr', {}, ['Pair', 'Rate', 'Date', 'Source', ''].map((h) => el('th', { text: h })))),
+                    el('tbody', {}, rates.map((r) => el('tr', {},
+                        el('td', { text: `1 ${r.base} → ${r.quote}` }),
+                        el('td', { class: 'num', text: String(r.rate) }),
+                        el('td', { text: shortDate(r.date) }),
+                        el('td', {}, el('span', { class: `chip ${r.manual ? 'ok' : ''}`, text: r.manual ? 'You' : titleCase(r.source) })),
+                        el('td', {}, r.manual ? el('button', { class: 'btn ghost sm icon-only', type: 'button', 'aria-label': `Delete ${r.base} to ${r.quote} rate`,
+                            onclick: async () => {
+                                if (!await confirmDialog({ title: 'Delete this rate?', confirmLabel: 'Delete', danger: true,
+                                    message: 'Reports and the dashboard will use the next closest rate, or show the entries as unconverted.' })) return;
+                                try { await api.del(`/exchange-rates/${r.id}`); toast('Rate deleted'); load(); } catch (e) { toast(errorText(e), 'error'); }
+                            } }, icon('trash')) : null))))))
+                : empty('No rates yet. Add one to include other currencies in your totals.', 'swap'));
+        } catch (e) {
+            fill(list, empty(errorText(e), 'alert'));
+        }
+    };
+    const options = (selected) => currencyOptions(currencies, selected);
+    const form = el('form', { class: 'settings-form', onsubmit: (e) => save(e, async (f) => {
+        await api.post('/exchange-rates', { base: f.base.value, quote: f.quote.value, rate: parseAmount(f.rate.value), date: f.date.value || null });
+        f.rate.value = '';
+        load();
+    }, 'Rate saved') },
+    el('div', { class: 'form-grid rate-grid' },
+        field('1 unit of', select('base', options('USD'))),
+        field('equals', input('rate', { inputmode: 'decimal', placeholder: 'e.g. 83.25', required: true })),
+        field('in', select('quote', options(home))),
+        field('On', input('date', { type: 'date', value: isoDate(new Date()), max: isoDate(new Date()) }))),
+    el('p', { class: 'faint', text: 'Each entry is converted with the latest rate on or before its own date, so past totals never shift. '
+        + 'Amounts are never rewritten: every record keeps its own currency.' }),
+    el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'submit', text: 'Add rate' })));
+    load();
+    return card('Exchange rates', { action: providerSlot }, form, el('h3', { class: 'section-title rates-title', text: 'Saved rates' }), list);
 }
 
 async function save(e, action, message) {

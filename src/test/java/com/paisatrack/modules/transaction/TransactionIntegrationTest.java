@@ -208,8 +208,9 @@ class TransactionIntegrationTest extends FinanceIntegrationTest {
         UUID cash = defaultAccount(session);
         postAuthed("/api/v1/transfers", session, body("amount", "10", "fromAccountId", cash, "toAccountId", cash))
                 .andExpect(status().isUnprocessableContent());
+        // Across currencies the amount that arrived is required.
         postAuthed("/api/v1/transfers", session, body("amount", "10", "fromAccountId", cash, "toAccountId", usd))
-                .andExpect(jsonPath("$.error.code").value("CURRENCY_MISMATCH"));
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.fields[0].field").value("toAmount"));
         postAuthed("/api/v1/expenses", session, Map.of("categoryId", food.toString()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.fields[0].field").value("amount"));

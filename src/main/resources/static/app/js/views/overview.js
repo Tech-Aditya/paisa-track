@@ -149,7 +149,7 @@ function content(d, range, reload, report = null) {
             action: el('a', { class: 'btn sm ghost', href: '#/transactions' }, 'View all', icon('right')) }, recent(d, reload))));
 
     const note = el('p', { class: 'faint', style: { marginTop: '16px', fontSize: '12.5px' } },
-        d.basis + (d.otherCurrencyTransactions ? ` ${plural(d.otherCurrencyTransactions, 'entry', 'entries')} in other currencies this month aren't included.` : ''));
+        d.basis + (d.unconvertedTransactions ? ` ${plural(d.unconvertedTransactions, 'entry', 'entries')} this month had no exchange rate and aren't included.` : ''));
     return [kpis, grid, note];
 }
 
@@ -223,12 +223,20 @@ function accounts(d) {
             el('div', { class: 'grow' },
                 el('div', { class: 'title', text: acc.name }),
                 el('div', { class: 'meta', text: acc.nature === 'LIABILITY' ? 'Amount owed' : acc.type.replace('_', ' ').toLowerCase() })),
-            el('div', { class: `amount num ${acc.nature === 'LIABILITY' ? 'neg' : ''}`, text: money(acc.currentBalance, acc.currency) })))),
+            el('div', { class: 'debt-amount' },
+                el('div', { class: `amount num ${acc.nature === 'LIABILITY' ? 'neg' : ''}`, text: money(acc.currentBalance, acc.currency) }),
+                acc.convertedBalance !== null && acc.convertedBalance !== undefined
+                    ? el('div', { class: 'meta num', text: `≈ ${money(acc.convertedBalance, d.currency)}` })
+                    : acc.currency !== d.currency ? el('div', { class: 'meta', text: 'no rate' }) : null)))),
         Number(a.loanOutstanding)
             ? el('div', { class: 'total sub-total' }, el('span', { text: 'Loans outstanding' }),
                 el('span', { class: 'num neg', text: `−${money(a.loanOutstanding, d.currency)}` }))
             : null,
-        el('div', { class: 'total' }, el('span', { text: 'Net worth' }), el('span', { class: 'num', text: money(a.netWorth, d.currency) })));
+        el('div', { class: 'total' }, el('span', { text: 'Net worth' }), el('span', { class: 'num', text: money(a.netWorth, d.currency) })),
+        a.unconvertedCurrencies?.length
+            ? el('p', { class: 'faint small-note' }, `${a.unconvertedCurrencies.join(', ')} accounts aren't included: no exchange rate. `,
+                el('a', { href: '#/settings', text: 'Add a rate' }))
+            : null);
 }
 
 function billsCard(d, reload) {
