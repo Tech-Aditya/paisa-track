@@ -88,6 +88,16 @@ const ICONS = {
     stop: 'M6 6h12v12H6z',
     skip: 'M5 4l10 8-10 8zM19 5v14',
     chart: 'M3 3v18h18M8 17V11M13 17V7M18 17v-4',
+    mail: 'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM3 7l9 6 9-6',
+    lock: 'M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1zM8 11V7a4 4 0 1 1 8 0v4',
+    eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+    'eye-off': 'M3 3l18 18M10.6 10.6a3 3 0 0 0 4.2 4.2M9.9 5.1A9.7 9.7 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.2M6.6 6.6C3.8 8.4 2 12 2 12s3.5 7 10 7a9.6 9.6 0 0 0 5.4-1.6',
+    user: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
+    'user-plus': 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M22 11h-6',
+    shield: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10zM9 12l2 2 4-4',
+    sparkle: 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z',
+    bolt: 'M13 2L4 14h7l-1 8 9-12h-7z',
+    'arrow-right': 'M5 12h14M13 6l6 6-6 6',
 };
 
 export function icon(name, extraClass = '') {
@@ -182,6 +192,13 @@ export function openPanel({ title, content, onClose }) {
     return { close, render };
 }
 
+/** "transactionDate" -> "Transaction date"; nested paths keep their last part. */
+export function fieldLabel(name) {
+    const last = String(name).split('.').pop().replace(/\[\d+\]/g, '').replace(/Id$/, '');
+    const words = last.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
+    return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 function clearErrors(form) {
     form.querySelectorAll('.err').forEach((n) => n.remove());
     form.querySelectorAll('.invalid').forEach((n) => n.classList.remove('invalid'));
@@ -195,13 +212,39 @@ function showErrors(form, errorBox, err) {
             input.classList.add('invalid');
             input.closest('.field')?.append(el('span', { class: 'err', text: f.message }));
         } else {
-            unmatched.push(`${f.field}: ${f.message}`);
+            unmatched.push(`${fieldLabel(f.field)}: ${f.message}`);
         }
     }
     if (!err.fields?.length || unmatched.length) {
         errorBox.textContent = unmatched.length ? unmatched.join(' · ') : err.message;
         errorBox.hidden = false;
     }
+}
+
+/**
+ * In-app confirmation (replaces the browser's confirm/prompt). Resolves to null when cancelled,
+ * otherwise to { reason } (reason only when reasonLabel is given).
+ */
+export function confirmDialog({ title, message, confirmLabel = 'Confirm', danger = false, reasonLabel = null }) {
+    return new Promise((resolve) => {
+        let done = false;
+        const sheet = openSheet({
+            title,
+            submitLabel: confirmLabel,
+            fields: () => [
+                el('p', { class: 'muted confirm-text', text: message }),
+                reasonLabel ? field(reasonLabel, input('reason', { maxlength: 200, placeholder: 'Optional' })) : null,
+            ],
+            submit: async (form) => {
+                done = true;
+                resolve({ reason: reasonLabel ? form.elements.namedItem('reason').value.trim() || null : null });
+            },
+            onClose: () => { if (!done) resolve(null); },
+        });
+        sheet.dialog.classList.add('confirm');
+        if (danger) sheet.form.querySelector('button[type=submit]').classList.add('danger-fill');
+        sheet.form.querySelector('button[type=submit]').focus();
+    });
 }
 
 export function field(label, control, extra = {}) {

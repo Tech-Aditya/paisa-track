@@ -3,7 +3,7 @@
 
 import { api, errorText } from '../api.js';
 import { kpi } from '../components.js';
-import { el, empty, field, fill, icon, input, openPanel, openSheet, segmented, select, skeleton, toast } from '../dom.js';
+import { confirmDialog, el, empty, field, fill, icon, input, openPanel, openSheet, segmented, select, skeleton, toast } from '../dom.js';
 import { isoDate, money, parseAmount, plural, shortDate, titleCase } from '../format.js';
 import { accountOptions, store } from '../store.js';
 
@@ -153,7 +153,8 @@ export function openLoanDetail(row, onChanged) {
                     p === latest
                         ? el('button', { class: 'btn ghost sm', type: 'button', title: 'Void this payment', 'aria-label': 'Void this payment',
                             onclick: async () => {
-                                if (!window.confirm('Void this payment? Its account entries are reversed and the loan goes back to how it was before.')) return;
+                                if (!await confirmDialog({ title: 'Void this payment?', danger: true, confirmLabel: 'Void payment',
+                                    message: 'Its account entries are reversed and the loan goes back to how it was before.' })) return;
                                 try { await api.post(`/loans/${l.id}/payments/${p.id}/void`); after('Payment voided'); } catch (e) { toast(errorText(e), 'error'); }
                             } }, icon('undo'))
                         : null)))
@@ -167,7 +168,8 @@ export function openLoanDetail(row, onChanged) {
                     onclick: () => openPrepayDialog(l, () => after('Prepayment recorded')).catch((e) => toast(errorText(e), 'error')) },
                 icon('trend'), 'Prepay') : null,
                 active.length === 0 ? el('button', { class: 'btn ghost danger', type: 'button', onclick: async () => {
-                    if (!window.confirm('Delete this loan? Any disbursement entry is removed from your account too.')) return;
+                    if (!await confirmDialog({ title: 'Delete this loan?', danger: true, confirmLabel: 'Delete loan',
+                        message: 'Any disbursement entry is removed from your account too.' })) return;
                     try { await api.del(`/loans/${l.id}`); changed = true; toast('Loan deleted'); close(); } catch (e) { toast(errorText(e), 'error'); }
                 } }, icon('trash'), 'Delete') : null);
 
@@ -209,7 +211,7 @@ export async function openLoanDialog({ onSaved }) {
             el('div', { class: 'form-grid' },
                 field('Name', input('name', { maxlength: 80, required: true, placeholder: 'e.g. Home loan' })),
                 field('Lender', input('lender', { maxlength: 100, placeholder: 'e.g. HDFC Bank' })),
-                field('Type', select('type', TYPES.map((t) => ({ value: t, label: titleCase(t) })))),
+                field('Type', select('type', [{ value: '', label: 'Choose a type' }, ...TYPES.map((t) => ({ value: t, label: titleCase(t) }))], { required: true })),
                 field('Loan amount', input('principal', { class: 'input amount', inputmode: 'decimal', placeholder: '0.00', required: true })),
                 field('Interest rate (% a year)', input('annualRate', { inputmode: 'decimal', placeholder: 'e.g. 8.5', required: true })),
                 field('Tenure (months)', input('tenureMonths', { inputmode: 'numeric', placeholder: 'e.g. 240', required: true })),

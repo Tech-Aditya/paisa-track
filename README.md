@@ -351,6 +351,9 @@ Open <http://localhost:8080/>. It is plain HTML, CSS and ES modules served by th
 backend, with no build step and a strict Content-Security-Policy. All user data is
 inserted as text.
 
+- **Landing and sign-in:** hero with the sign-in / create-account card (field
+  errors under each field, show/hide password), a product preview, features, how it
+  works, privacy, light/dark switch remembered on the device.
 - **Overview:** spending today, this week and this month; net cash flow and
   savings rate; daily spending and category donut charts; budgets with alerts;
   upcoming bills with one-tap **Paid**; expected income with **Record**; accounts
@@ -381,4 +384,5 @@ inserted as text.
 - Light and dark themes. Desktop: grouped sidebar with quick add. Phones: bottom
   tab bar (Home, Activity, Reports, Bills, More), bottom-sheet dialogs with the
   save button always in view, 44 px touch targets. Amounts accept `1,00,000`.
-  Press `n` anywhere to add a transaction.
+  Press `n` anywhere to add a transaction. Confirmations use in-app dialogs; the add
+  dialog remembers the last account you used.

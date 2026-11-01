@@ -19,7 +19,7 @@ const TYPES = {
 const DAYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
 const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD', 'JPY', 'AUD', 'CAD'];
 
-export async function renderSettings(root, { onThemeChange, onPasswordChanged } = {}) {
+export async function renderSettings(root, { onThemeChange, onPasswordChanged, onProfileChanged } = {}) {
     const head = el('header', { class: 'page-head' },
         el('div', {}, el('h1', { text: 'Settings' }), el('p', { text: 'Your profile, preferences and reminders.' })));
     fill(root, head, el('div', { class: 'card' }, skeleton(18, '30%'), skeleton(40)));
@@ -38,6 +38,8 @@ export async function renderSettings(root, { onThemeChange, onPasswordChanged } 
 
     const profile = el('form', { class: 'settings-form', onsubmit: (e) => save(e, async (f) => {
         await api.patch('/users/me', { fullName: f.fullName.value.trim() || null });
+        store.invalidate('me');
+        onProfileChanged?.();
     }, 'Profile saved') },
     el('div', { class: 'form-grid' },
         field('Full name', input('fullName', { value: me.fullName, maxlength: 100, required: true, autocomplete: 'name' })),

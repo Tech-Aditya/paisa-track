@@ -48,6 +48,7 @@ import com.paisatrack.platform.exception.ErrorCode;
 import com.paisatrack.platform.exception.FieldValidationException;
 import com.paisatrack.platform.exception.ResourceNotFoundException;
 import com.paisatrack.platform.idempotency.IdempotencyService;
+import com.paisatrack.platform.money.MoneyFormat;
 import com.paisatrack.platform.money.MoneyRules;
 
 /**
@@ -320,8 +321,8 @@ public class LoanService {
             }
             MoneyRules.requireValidAmount("amount", r.amount(), loan.getCurrency());
             if (r.amount().compareTo(s.outstanding()) > 0) {
-                throw new ApiException(ErrorCode.REPAYMENT_EXCEEDS_OUTSTANDING, "Prepayment is more than the outstanding principal "
-                        + MoneyRules.scaled(s.outstanding(), loan.getCurrency()) + " " + loan.getCurrency());
+                throw new ApiException(ErrorCode.REPAYMENT_EXCEEDS_OUTSTANDING, "Prepayment is more than the "
+                        + MoneyFormat.format(s.outstanding(), loan.getCurrency()) + " principal still outstanding");
             }
             LocalDate date = paymentDate(r.paymentDate(), loan, today);
             AccountRef account = sameCurrency(accounts.requireForTransaction(userId,

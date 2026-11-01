@@ -281,7 +281,7 @@ public class TransactionService {
         MoneyRules.requireValidAmount("amount", entry.amount(), currency);
         UUID categoryId = entry.categoryId() != null ? entry.categoryId() : source != null ? source.categoryId() : null;
         if (categoryId == null) {
-            throw new FieldValidationException("categoryId", "must not be null");
+            throw new FieldValidationException("categoryId", "is required (choose a category, or an income source that has one)");
         }
         CategoryRef category = categories.requireForTransaction(userId, categoryId, categoryType(type),
                 current == null ? null : current.getCategoryId());

@@ -1,7 +1,7 @@
 // App entry: auth gate, shell (sidebar / mobile tab bar), hash routing, theme, reminders and shortcuts.
 
 import { api, errorText, session, whenSignedOut } from './api.js';
-import { renderAuth } from './auth.js';
+import { brand, rememberTheme, renderAuth, savedTheme } from './auth.js';
 import { el, fill, icon, toast } from './dom.js';
 import { openTransactionDialog } from './forms.js';
 import { initials } from './format.js';
@@ -24,7 +24,10 @@ const ROUTES = {
     '#/debts': { label: 'Lending', short: 'Lending', iconName: 'people', group: 'Plan', render: renderDebts },
     '#/settings': {
         label: 'Settings', short: 'Settings', iconName: 'settings', group: 'Account',
-        render: (root) => renderSettings(root, { onThemeChange: applyTheme, onPasswordChanged: signOut }),
+        render: (root) => renderSettings(root, {
+            onThemeChange: applyTheme, onPasswordChanged: signOut,
+            onProfileChanged: async () => { me = await store.me(); renderNav(); },
+        }),
     },
 };
 /** Phone tab bar; everything else lives under "More". */
@@ -38,6 +41,7 @@ let main;
 function applyTheme(theme) {
     if (theme === 'LIGHT' || theme === 'DARK') document.documentElement.dataset.theme = theme.toLowerCase();
     else delete document.documentElement.dataset.theme;
+    if (theme) rememberTheme(theme); // so the sign-in screen opens in the same theme
     renderNav();
 }
 
@@ -73,7 +77,7 @@ function renderNav() {
     const groups = [...new Set(Object.values(ROUTES).map((r) => r.group))];
     fill(sidebar,
         el('div', { class: 'sidebar-top' },
-            el('a', { class: 'brand', href: '#/overview' }, el('span', { class: 'brand-mark', text: '₹' }), 'PaisaTrack'),
+            el('a', { class: 'brand-link', href: '#/overview', 'aria-label': 'PaisaTrack home' }, brand()),
             bellButton()),
         el('button', { class: 'btn primary wide quick-add', type: 'button', onclick: () => newTransaction() }, icon('plus'), 'Add transaction',
             el('kbd', { text: 'N' })),
@@ -92,7 +96,7 @@ function renderNav() {
         el('button', { class: 'nav-link', type: 'button', 'aria-current': moreActive ? 'page' : null, onclick: openMore },
             icon('more'), el('span', { text: 'More' })));
     fill(mobileBar,
-        el('a', { class: 'brand', href: '#/overview' }, el('span', { class: 'brand-mark', text: '₹' }), 'PaisaTrack'),
+        el('a', { class: 'brand-link', href: '#/overview', 'aria-label': 'PaisaTrack home' }, brand()),
         el('div', { class: 'head-actions' },
             bellButton(),
             el('button', { class: 'btn ghost icon-only', type: 'button', 'aria-label': isDark() ? 'Light mode' : 'Dark mode', onclick: toggleTheme },
@@ -152,7 +156,14 @@ async function route() {
     } catch (e) {
         if (seq === routeSeq) toast(errorText(e), 'error');
     }
+    // New bills, EMIs or budgets may have created reminders; check at most once a minute.
+    if (Date.now() - lastReminderCheck > 60_000) {
+        lastReminderCheck = Date.now();
+        refreshNotifications();
+    }
 }
+
+let lastReminderCheck = 0;
 
 function newTransaction() {
     openTransactionDialog({ onSaved: route }).catch((e) => toast(errorText(e), 'error'));
@@ -170,7 +181,6 @@ async function start() {
     applyTheme(me.preferences.theme);
     renderShell();
     await route();
-    refreshNotifications();
 }
 
 function showAuth() {
@@ -204,5 +214,9 @@ window.addEventListener('keydown', (e) => {
         newTransaction();
     }
 });
+
+// Theme before we know the account's preference: the one last used on this device.
+const remembered = savedTheme();
+if (remembered === 'LIGHT' || remembered === 'DARK') document.documentElement.dataset.theme = remembered.toLowerCase();
 
 if (session.access) start(); else showAuth();

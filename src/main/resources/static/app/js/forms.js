@@ -1,7 +1,7 @@
 // Create dialogs. Each calls `onSaved` after a successful save so the current view can refresh.
 
 import { api } from './api.js';
-import { el, field, input, openSheet, segmented, select, toast } from './dom.js';
+import { confirmDialog, el, field, input, openSheet, segmented, select, toast } from './dom.js';
 import { isoDate, parseAmount, titleCase } from './format.js';
 import { accountOptions, categoryOptions, store } from './store.js';
 
@@ -20,6 +20,19 @@ function accountChoices(accounts, selectedId, keep) {
 
 const PATHS = { EXPENSE: '/expenses', INCOME: '/income', TRANSFER: '/transfers' };
 
+/** The account last used for a kind of entry, remembered on this device (a convenience only). */
+const lastAccount = {
+    get(kind, accounts) {
+        try {
+            const id = localStorage.getItem(`pt.lastAccount.${kind}`);
+            return accounts.some((a) => a.id === id) ? id : undefined;
+        } catch { return undefined; }
+    },
+    set(kind, id) {
+        try { if (id) localStorage.setItem(`pt.lastAccount.${kind}`, id); } catch { /* ignore */ }
+    },
+};
+
 /**
  * Expense, income or transfer. `preset` can fix the type and prefill fields (e.g. a salary receipt).
  * Pass `existing` (a transaction) to edit it instead; its type can't change.
@@ -36,7 +49,7 @@ export async function openTransactionDialog({ type = 'EXPENSE', preset = {}, exi
         amount: existing.amount, date: existing.transactionDate, categoryId: existing.category?.id, accountId: existing.account?.id,
         toAccountId: existing.toAccount?.id, description: existing.description, counterparty: existing.counterparty,
         incomeSourceId: existing.incomeSource?.id, periodMonth: existing.incomePeriod, notes: existing.notes,
-    } : preset;
+    } : { ...preset, accountId: preset.accountId ?? lastAccount.get(type, accounts) };
 
     const sheet = openSheet({
         title: editing ? `Edit ${current === 'TRANSFER' ? 'transfer' : current.toLowerCase()}` : 'New transaction',
@@ -44,7 +57,8 @@ export async function openTransactionDialog({ type = 'EXPENSE', preset = {}, exi
         danger: editing ? {
             label: 'Delete',
             action: async () => {
-                if (!window.confirm('Delete this transaction? It is removed from balances and totals, and can be restored later.')) return false;
+                if (!await confirmDialog({ title: 'Delete this transaction?', danger: true, confirmLabel: 'Delete',
+                    message: 'It is removed from balances and totals. You can restore it from Transactions › Show deleted.' })) return false;
                 await api.post(`/transactions/${existing.id}/void`);
                 store.invalidate('accounts');
                 toast('Transaction deleted');
@@ -65,7 +79,7 @@ export async function openTransactionDialog({ type = 'EXPENSE', preset = {}, exi
 
             if (current === 'TRANSFER') {
                 return [typeSwitch, amountField, el('div', { class: 'form-grid' },
-                    field('From account', select('fromAccountId', accountChoices(accounts, p.accountId, existing?.account))),
+                    field('From account', select('fromAccountId', accountChoices(accounts, p.accountId ?? lastAccount.get('TRANSFER', accounts), existing?.account))),
                     field('To account', select('toAccountId', accountChoices(accounts,
                         p.toAccountId ?? accounts.find((a) => !a.defaultAccount)?.id, existing?.toAccount))),
                     date, note()),
@@ -115,6 +129,7 @@ export async function openTransactionDialog({ type = 'EXPENSE', preset = {}, exi
                 await api.put(`${PATHS[current]}/${existing.id}`, body);
             } else {
                 await api.post(PATHS[current], body, { 'Idempotency-Key': idempotencyKey });
+                lastAccount.set(current, current === 'TRANSFER' ? body.fromAccountId : body.accountId);
             }
             store.invalidate('accounts', 'sources');
             toast(editing ? 'Changes saved' : `${titleCase(current)} saved`);

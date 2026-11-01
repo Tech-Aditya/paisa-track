@@ -37,6 +37,7 @@ import com.paisatrack.platform.exception.ErrorCode;
 import com.paisatrack.platform.exception.FieldValidationException;
 import com.paisatrack.platform.exception.ResourceNotFoundException;
 import com.paisatrack.platform.idempotency.IdempotencyService;
+import com.paisatrack.platform.money.MoneyFormat;
 import com.paisatrack.platform.money.MoneyRules;
 
 /**
@@ -252,7 +253,7 @@ public class DebtService {
             }
             if (request.amount().compareTo(outstanding) > 0) {
                 throw new ApiException(ErrorCode.REPAYMENT_EXCEEDS_OUTSTANDING,
-                        "Repayment is more than the outstanding " + MoneyRules.scaled(outstanding, currency) + " " + currency);
+                        "Repayment is more than the " + MoneyFormat.format(outstanding, currency) + " still outstanding");
             }
             LocalDate today = preferences.today(userId);
             LocalDate date = request.repaymentDate() != null ? request.repaymentDate() : today;

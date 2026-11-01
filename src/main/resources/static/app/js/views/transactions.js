@@ -2,7 +2,7 @@
 
 import { api, errorText } from '../api.js';
 import { txRow } from '../components.js';
-import { el, empty, fill, icon, input, select, skeleton, toast } from '../dom.js';
+import { confirmDialog, el, empty, fill, icon, input, select, skeleton, toast } from '../dom.js';
 import { openTransactionDialog } from '../forms.js';
 import { dayHeading, money } from '../format.js';
 import { store } from '../store.js';
@@ -123,7 +123,8 @@ function rowAction(t, reload) {
         class: `btn ghost sm icon-only ${voided ? '' : 'danger'}`, type: 'button',
         title: voided ? 'Restore' : 'Delete', 'aria-label': voided ? 'Restore transaction' : 'Delete transaction',
         onclick: async () => {
-            if (!voided && !window.confirm('Delete this transaction? It will be removed from balances and totals, and can be restored later.')) return;
+            if (!voided && !await confirmDialog({ title: 'Delete this transaction?', danger: true, confirmLabel: 'Delete',
+                message: 'It is removed from balances and totals, and can be restored later.' })) return;
             try {
                 await api.post(`/transactions/${t.id}/${voided ? 'restore' : 'void'}`);
                 store.invalidate('accounts');

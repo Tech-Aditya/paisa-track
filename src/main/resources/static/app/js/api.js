@@ -80,10 +80,16 @@ export const api = {
     public: (path, body) => request(path, { method: 'POST', body, auth: false }),
 };
 
+const label = (name) => {
+    const last = String(name).split('.').pop().replace(/Id$/, '');
+    const words = last.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
+    return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
 /** Readable message, including per-field details when the server sent them. */
 export function errorText(e) {
     if (e instanceof ApiError && e.fields.length) {
-        return e.fields.map((f) => `${f.field}: ${f.message}`).join(' · ');
+        return e.fields.map((f) => `${label(f.field)} ${f.message}`).join(' · ');
     }
     return e?.message ?? 'Something went wrong';
 }

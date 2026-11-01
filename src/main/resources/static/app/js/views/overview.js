@@ -3,7 +3,7 @@
 import { api, errorText } from '../api.js';
 import { colorVar, dailyBars, donut, trendBars } from '../charts.js';
 import { card, entries, kpi, smallButton, txRow } from '../components.js';
-import { el, empty, fill, icon, input, segmented, skeleton, toast } from '../dom.js';
+import { el, empty, fill, icon, input, segmented, skeleton, svg, toast } from '../dom.js';
 import { openAccountDialog, openBudgetDialog, openIncomeSourceDialog, openTransactionDialog, recordExpectedIncome } from '../forms.js';
 import { addDays, greeting, isoDate, longDate, money, plural, shortDate } from '../format.js';
 import { store } from '../store.js';
@@ -41,14 +41,19 @@ export async function renderOverview(root) {
 
     fill(root, header(me, today, reload), loadingGrid());
     let d;
+    let report = null;
     try {
-        d = await api.get(`/dashboard${range ? `?from=${range.from}&to=${range.to}` : ''}`);
+        // The monthly report gives a like-for-like comparison (same days of last month) for the hero card.
+        [d, report] = await Promise.all([
+            api.get(`/dashboard${range ? `?from=${range.from}&to=${range.to}` : ''}`),
+            range ? Promise.resolve(null) : api.get('/reports/monthly').catch(() => null),
+        ]);
     } catch (e) {
         fill(root, header(me, today, reload), el('div', { class: 'card' }, empty(errorText(e), 'alert',
             el('button', { class: 'btn', type: 'button', text: 'Try again', onclick: reload }))));
         return;
     }
-    fill(root, header(me, d.today, reload), content(d, range, reload));
+    fill(root, header(me, d.today, reload), content(d, range, reload, report));
 }
 
 function header(me, today, reload) {
@@ -78,7 +83,40 @@ function loadingGrid() {
     ];
 }
 
-function content(d, range, reload) {
+/** Cumulative spending as a smooth line with a soft area under it. */
+function sparkline(days) {
+    let total = 0;
+    const points = days.map((x) => { total += Number(x.amount); return total; });
+    if (points.length < 2 || total === 0) return null;
+    const W = 200;
+    const H = 60;
+    const xy = points.map((v, i) => [(i / (points.length - 1)) * W, H - 4 - (v / total) * (H - 8)]);
+    const line = xy.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ');
+    return svg('svg', { class: 'spark', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', 'aria-hidden': 'true' },
+        svg('path', { class: 'area', d: `${line} L${W} ${H} L0 ${H} Z` }),
+        svg('path', { class: 'line', d: line }));
+}
+
+function heroCard(d, range, report, overall) {
+    const c = d.currency;
+    const p = d.periods;
+    const span = p.selected ?? p.month;
+    const change = report?.comparison?.expenseChange;
+    const chip = change === null || change === undefined ? null
+        : el('span', { class: 'hero-chip', title: 'Compared with the same days last month' },
+            icon(Number(change) > 0 ? 'up' : 'down'), `${Math.abs(Math.round(Number(change)))}% vs last month`);
+    return el('section', { class: 'hero-card' },
+        el('div', { class: 'hero-top' }, el('span', { text: range ? 'Spent in range' : 'Spent this month' }), chip),
+        el('div', { class: 'hero-value num', text: money(span.expense, c) }),
+        el('div', { class: 'hero-meta' },
+            el('span', { text: `Today ${money(p.today.expense, c)}` }),
+            el('span', { text: `This week ${money(p.week.expense, c)}` }),
+            !range && overall ? el('span', { text: `${Math.round(Number(overall.utilization.percentUsed))}% of budget` })
+                : el('span', { text: entries(span.expenseCount) })),
+        sparkline(d.dailySpending.filter((x) => x.date <= d.today)));
+}
+
+function content(d, range, reload, report = null) {
     const c = d.currency;
     const p = d.periods;
     const span = p.selected ?? p.month;
@@ -86,15 +124,12 @@ function content(d, range, reload) {
     const overall = d.budgets.find((b) => b.scope === 'OVERALL' && b.period === 'MONTHLY' && b.utilization?.status !== 'NOT_IN_EFFECT');
 
     const kpis = el('div', { class: 'kpis' },
-        kpi({ label: 'Spent today', value: money(p.today.expense, c), iconName: 'calendar', tone: 'neg',
-            foot: [entries(p.today.expenseCount)] }),
-        kpi({ label: 'This week', value: money(p.week.expense, c), iconName: 'down',
-            foot: [entries(p.week.expenseCount), `${shortDate(p.week.from)} – ${shortDate(p.week.to)}`] }),
-        kpi({ label: range ? 'Spent in range' : 'Spent this month', value: money(span.expense, c), iconName: 'target', tone: 'accent',
-            foot: [entries(span.expenseCount), !range && overall ? `${overall.utilization.percentUsed}% of ${money(overall.amount, c)} budget` : null] }),
-        kpi({ label: 'Net cash flow', value: money(p.month.netCashFlow, c), iconName: 'trend',
-            tone: Number(p.month.netCashFlow) >= 0 ? 'pos' : 'neg',
-            foot: [`Income ${money(p.month.income, c)}`, d.savingsRate !== null ? `Saved ${d.savingsRate}%` : null] }));
+        heroCard(d, range, report, overall),
+        kpi({ label: 'Income this month', value: money(p.month.income, c), iconName: 'up', tone: 'pos',
+            foot: [`Net ${money(p.month.netCashFlow, c)}`, d.savingsRate !== null ? `Saved ${d.savingsRate}%` : null] }),
+        kpi({ label: 'Net worth', value: money(d.accounts.netWorth, c), iconName: 'wallet', tone: 'accent',
+            foot: [`Assets ${money(d.accounts.totalAssets, c)}`,
+                Number(d.accounts.loanOutstanding) ? `Loans ${money(d.accounts.loanOutstanding, c)}` : null] }));
 
     const grid = el('div', { class: 'grid' },
         el('div', { class: 'col-8' }, card('Daily spending', { sub: spanLabel }, dailyChart(d))),

@@ -3,7 +3,7 @@
 
 import { api, errorText } from '../api.js';
 import { kpi } from '../components.js';
-import { el, empty, field, fill, icon, input, openPanel, openSheet, segmented, select, skeleton, toast } from '../dom.js';
+import { confirmDialog, el, empty, field, fill, icon, input, openPanel, openSheet, segmented, select, skeleton, toast } from '../dom.js';
 import { isoDate, money, parseAmount, plural, shortDate, titleCase } from '../format.js';
 import { accountOptions, categoryOptions, store } from '../store.js';
 
@@ -74,7 +74,8 @@ export async function renderRecurring(root) {
 /** An expected occurrence with Confirm / Skip. Used on this page and the overview. */
 export function occurrenceRow(o, rule, onChanged) {
     const [label, tone] = OCCURRENCE[o.status] ?? [o.status, ''];
-    const when = o.status === 'OVERDUE' ? `Was due ${shortDate(o.dueDate)}` : o.status === 'DUE' ? 'Due today' : `Due ${shortDate(o.dueDate)}`;
+    const when = [o.status === 'OVERDUE' ? `Was due ${shortDate(o.dueDate)}` : shortDate(o.dueDate),
+        o.type === 'TRANSFER' ? 'Transfer' : o.type === 'INCOME' ? 'Income' : titleCase(o.kind)].join(' · ');
     return el('div', { class: 'row' },
         el('div', { class: `tile-icon ${o.status === 'OVERDUE' ? 'expense' : o.type === 'INCOME' ? 'income' : 'loan'}` }, icon(KIND_ICON[o.kind] ?? 'repeat')),
         el('div', { class: 'grow' },
@@ -149,7 +150,8 @@ function openRuleDetail(row, onChanged) {
                         resolved
                             ? el('button', { class: 'btn ghost sm icon-only', type: 'button', title: 'Undo', 'aria-label': 'Undo',
                                 onclick: async () => {
-                                    if (o.status === 'CONFIRMED' && !window.confirm('Undo this? The recorded transaction is deleted (it can be restored from Transactions).')) return;
+                                    if (o.status === 'CONFIRMED' && !await confirmDialog({ title: 'Undo this payment?', confirmLabel: 'Undo', danger: true,
+                                        message: 'The recorded transaction is deleted (it can be restored from Transactions) and the date is expected again.' })) return;
                                     try { await api.post(`/recurring-occurrences/${o.id}/reopen`); after('Reopened'); } catch (e) { toast(errorText(e), 'error'); }
                                 } }, icon('undo'))
                             : el('button', { class: 'btn sm', type: 'button',
@@ -163,11 +165,13 @@ function openRuleDetail(row, onChanged) {
                 r.status === 'ACTIVE' ? el('button', { class: 'btn', type: 'button', onclick: act('pause', 'Paused') }, icon('pause'), 'Pause') : null,
                 r.status === 'PAUSED' ? el('button', { class: 'btn primary', type: 'button', onclick: act('resume', 'Resumed') }, icon('play'), 'Resume') : null,
                 r.status !== 'STOPPED' ? el('button', { class: 'btn ghost', type: 'button', onclick: async () => {
-                    if (!window.confirm(`Stop "${r.name}" for good? Past entries stay; no new dates are created.`)) return;
+                    if (!await confirmDialog({ title: `Stop "${r.name}"?`, confirmLabel: 'Stop for good', danger: true,
+                        message: 'Past entries stay; no new dates are created. Use Pause if you may need it again.' })) return;
                     await act('stop', 'Stopped')();
                 } }, icon('stop'), 'Stop') : null,
                 el('button', { class: 'btn ghost danger', type: 'button', onclick: async () => {
-                    if (!window.confirm('Delete this recurring item? Only possible if nothing was recorded from it.')) return;
+                    if (!await confirmDialog({ title: 'Delete this recurring item?', confirmLabel: 'Delete', danger: true,
+                        message: 'Only possible if nothing was recorded from it; otherwise stop it instead.' })) return;
                     try { await api.del(`/recurring-transactions/${r.id}`); changed = true; toast('Deleted'); close(); } catch (e) { toast(errorText(e), 'error'); }
                 } }, icon('trash'), 'Delete'));
 

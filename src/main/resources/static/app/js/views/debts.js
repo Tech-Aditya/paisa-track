@@ -2,7 +2,7 @@
 
 import { api, errorText } from '../api.js';
 import { kpi } from '../components.js';
-import { el, empty, field, fill, icon, input, openPanel, openSheet, segmented, select, skeleton, toast } from '../dom.js';
+import { confirmDialog, el, empty, field, fill, icon, input, openPanel, openSheet, segmented, select, skeleton, toast } from '../dom.js';
 import { initials, money, parseAmount, plural, shortDate, titleCase } from '../format.js';
 import { store } from '../store.js';
 
@@ -66,7 +66,7 @@ function summaryCards(summary, currency) {
 
 export function dueText(d) {
     if (d.status === 'SETTLED') return d.lastRepaymentDate ? `Settled ${shortDate(d.lastRepaymentDate)}` : 'Settled';
-    if (d.status === 'WRITTEN_OFF') return 'Written off';
+    if (d.status === 'WRITTEN_OFF') return `Since ${shortDate(d.startDate)}${d.writeOffReason ? ` · ${d.writeOffReason}` : ''}`;
     if (d.overdue) return `Overdue by ${plural(d.daysOverdue, 'day')}`;
     return d.dueDate ? `Due ${shortDate(d.dueDate)}` : `Since ${shortDate(d.startDate)}`;
 }
@@ -164,7 +164,8 @@ export function openDebtDetail(summaryRow, onChanged) {
                     !r.voided && d.status !== 'WRITTEN_OFF'
                         ? el('button', { class: 'btn ghost sm', type: 'button', title: 'Void this repayment',
                             onclick: act(async () => {
-                                if (!window.confirm('Void this repayment? It stays in the history and the outstanding amount goes back up.')) throw new Error('Cancelled');
+                                if (!await confirmDialog({ title: 'Void this repayment?', danger: true, confirmLabel: 'Void',
+                                    message: 'It stays in the history and the outstanding amount goes back up.' })) throw new Error('Cancelled');
                                 await api.post(`/repayments/${r.id}/void`);
                             }, 'Repayment voided') }, icon('undo'))
                         : null)))
@@ -174,14 +175,17 @@ export function openDebtDetail(summaryRow, onChanged) {
                 open ? el('button', { class: 'btn primary', type: 'button',
                     onclick: () => openRepaymentDialog(d, () => after('Repayment recorded')) }, icon('plus'), 'Record repayment') : null,
                 open ? el('button', { class: 'btn', type: 'button', onclick: act(async () => {
-                    const reason = window.prompt(`Write off ${money(d.outstanding, c)}? This closes the record. It is not counted as income or spending.\n\nReason (optional):`, '');
-                    if (reason === null) throw new Error('Cancelled');
-                    await api.post(`${path}/write-off`, { reason: reason || null });
+                    const answer = await confirmDialog({ title: `Write off ${money(d.outstanding, c)}?`, confirmLabel: 'Write off', danger: true,
+                        message: 'This closes the record with the rest unpaid. It is not counted as income or spending, and you can reopen it later.',
+                        reasonLabel: 'Reason' });
+                    if (!answer) throw new Error('Cancelled');
+                    await api.post(`${path}/write-off`, { reason: answer.reason });
                 }, 'Written off') }, 'Write off') : null,
                 d.status === 'WRITTEN_OFF' ? el('button', { class: 'btn', type: 'button',
                     onclick: act(() => api.post(`${path}/reopen`), 'Reopened') }, 'Reopen') : null,
                 activeRepayments === 0 ? el('button', { class: 'btn ghost danger', type: 'button', onclick: async () => {
-                    if (!window.confirm('Delete this record? Use this only for mistakes.')) return;
+                    if (!await confirmDialog({ title: 'Delete this record?', danger: true, confirmLabel: 'Delete',
+                        message: 'Use this only for records added by mistake.' })) return;
                     try { await api.del(path); changed = true; toast('Record deleted'); close(); } catch (e) { toast(errorText(e), 'error'); }
                 } }, icon('trash'), 'Delete') : null);
 
