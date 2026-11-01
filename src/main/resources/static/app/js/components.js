@@ -1,6 +1,7 @@
 // Shared bits of page UI.
 
-import { el, icon } from './dom.js';
+import { download, errorText } from './api.js';
+import { el, icon, toast } from './dom.js';
 import { money, plural } from './format.js';
 
 const TYPE_ICON = { EXPENSE: 'down', INCOME: 'up', TRANSFER: 'swap', LOAN_DISBURSEMENT: 'bank', LOAN_PRINCIPAL: 'bank' };
@@ -31,13 +32,35 @@ export function txRow(t, actions = null, onOpen = null) {
     },
         el('div', { class: `tile-icon ${t.loanId ? 'loan' : t.type.toLowerCase()}` }, icon(TYPE_ICON[t.type])),
         el('div', { class: 'grow' },
-            el('div', { class: 'title', text: txTitle(t) }),
+            el('div', { class: 'title' }, txTitle(t),
+                t.attachmentCount ? el('span', { class: 'clip', title: `${t.attachmentCount} receipt${t.attachmentCount > 1 ? 's' : ''}`,
+                    'aria-label': 'Has receipts' }, icon('clip')) : null),
             el('div', { class: 'meta', text: meta || '—' })),
         el('div', {},
             el('div', { class: `amount num ${t.type === 'EXPENSE' ? 'neg' : t.type === 'INCOME' ? 'pos' : ''}`, text: sign + money(t.amount, t.currency) }),
             t.toAmount ? el('div', { class: 'meta num', text: `→ ${money(t.toAmount, t.toCurrency)}` }) : null,
             t.status === 'VOIDED' ? el('div', { class: 'meta', text: 'Deleted' }) : null),
         actions);
+}
+
+/** "Export" menu: CSV, Excel or PDF of whatever `pathFor(format)` points at. */
+export function exportMenu(pathFor) {
+    const menu = el('details', { class: 'menu' });
+    const choose = async (format) => {
+        menu.open = false;
+        try {
+            const name = await download(pathFor(format), `paisatrack.${format.toLowerCase()}`);
+            toast(`Downloaded ${name}`);
+        } catch (e) {
+            toast(errorText(e), 'error');
+        }
+    };
+    menu.append(el('summary', { class: 'btn sm' }, icon('download'), 'Export'),
+        el('div', { class: 'menu-list', role: 'menu' },
+            [['CSV', 'CSV (spreadsheet text)'], ['XLSX', 'Excel workbook'], ['PDF', 'PDF document']].map(([f, label]) =>
+                el('button', { type: 'button', class: 'menu-item', role: 'menuitem', text: label, onclick: () => choose(f) }))));
+    document.addEventListener('click', (e) => { if (menu.open && !menu.contains(e.target)) menu.open = false; });
+    return menu;
 }
 
 export function card(title, { sub, action, className = '' } = {}, ...body) {

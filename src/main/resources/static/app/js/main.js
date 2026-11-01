@@ -9,8 +9,10 @@ import { bellButton, refreshNotifications } from './notifications.js';
 import { store } from './store.js';
 import { renderAccounts } from './views/accounts.js';
 import { renderBudgets } from './views/budgets.js';
+import { renderCalendar } from './views/calendar.js';
 import { renderCategories } from './views/categories.js';
 import { renderDebts } from './views/debts.js';
+import { renderImport } from './views/import.js';
 import { renderLoans } from './views/loans.js';
 import { renderOverview } from './views/overview.js';
 import { renderRecurring } from './views/recurring.js';
@@ -23,6 +25,8 @@ const ROUTES = {
     '#/transactions': { label: 'Transactions', short: 'Activity', iconName: 'list', group: 'Money', render: renderTransactions },
     '#/reports': { label: 'Reports', short: 'Reports', iconName: 'chart', group: 'Money', render: renderReports },
     '#/accounts': { label: 'Accounts', short: 'Accounts', iconName: 'wallet', group: 'Money', render: renderAccounts },
+    '#/import': { label: 'Import statement', short: 'Import', iconName: 'upload', group: 'Money', render: renderImport },
+    '#/calendar': { label: 'Calendar', short: 'Calendar', iconName: 'calendar', group: 'Plan', render: renderCalendar },
     '#/budgets': { label: 'Budgets', short: 'Budgets', iconName: 'target', group: 'Plan', render: renderBudgets },
     '#/recurring': { label: 'Bills & recurring', short: 'Bills', iconName: 'repeat', group: 'Plan', render: renderRecurring },
     '#/loans': { label: 'Loans & EMIs', short: 'Loans', iconName: 'bank', group: 'Plan', render: renderLoans },

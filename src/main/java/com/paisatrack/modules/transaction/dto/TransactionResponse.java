@@ -36,7 +36,8 @@ public record TransactionResponse(
         Instant voidedAt,
         String voidReason,
         Instant createdAt,
-        Instant updatedAt) {
+        Instant updatedAt,
+        @Schema(description = "Receipts attached") int attachmentCount) {
 
     public record AccountInfo(UUID id, String name) {
     }

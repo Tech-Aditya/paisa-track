@@ -3,7 +3,7 @@
 
 import { api, errorText } from '../api.js';
 import { dailyBars, trendBars } from '../charts.js';
-import { card } from '../components.js';
+import { card, exportMenu } from '../components.js';
 import { el, empty, field, fill, icon, input, segmented, select, skeleton } from '../dom.js';
 import { isoDate, money, plural, shortDate, titleCase } from '../format.js';
 import { categoryOptions, currencyOptions, store } from '../store.js';
@@ -87,7 +87,11 @@ export async function renderReports(root) {
                     state.currency = e.target.value === me.preferences.defaultCurrency ? '' : e.target.value; reload();
                 } })
                 : null,
-            segmented(KINDS, state.kind, (v) => { state.kind = v; reload(); }, 'Report period')));
+            segmented(KINDS, state.kind, (v) => { state.kind = v; reload(); }, 'Report period'),
+            exportMenu((format) => {
+                const u = url().replace('/reports/', '/exports/reports/');
+                return `${u}${u.includes('?') ? '&' : '?'}format=${format}`;
+            })));
     const body = el('div', { class: 'stack' },
         el('div', { class: 'kpis' }, [1, 2, 3, 4].map(() => el('section', { class: 'card' }, skeleton(14, '40%'), skeleton(28)))),
         el('section', { class: 'card' }, skeleton(200)));

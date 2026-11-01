@@ -775,3 +775,93 @@ dialog.drawer::backdrop { background: rgba(8, 12, 18, .35); }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- Phase 10: exports, receipts, import, calendar, voice ---------- */
+
+.menu { position: relative; }
+.menu > summary { list-style: none; }
+.menu > summary::-webkit-details-marker { display: none; }
+.menu-list {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 200px; padding: 6px;
+    display: grid; border-radius: 12px; background: var(--bg-elev); border: 1px solid var(--border); box-shadow: var(--shadow-lg);
+}
+.menu-item { text-align: left; padding: 9px 12px; border: 0; border-radius: 8px; background: none; color: var(--text); font: inherit; cursor: pointer; }
+.menu-item:hover, .menu-item:focus-visible { background: var(--bg-sunken); }
+
+.row .title .clip { display: inline-flex; margin-left: 6px; color: var(--text-3); vertical-align: -2px; }
+.row .title .clip .icon { width: 14px; height: 14px; }
+
+.suggest-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.suggest-row[hidden] { display: none; }
+.voice-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border-radius: 12px; background: var(--accent-soft); }
+.voice-bar .faint { font-size: 13px; }
+.voice-bar .btn.listening { color: var(--expense); border-color: var(--expense); animation: pt-pulse 1.2s ease-in-out infinite; }
+@keyframes pt-pulse { 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .voice-bar .btn.listening { animation: none; } }
+
+.receipts-field { display: grid; gap: 8px; }
+.receipts-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.receipts-head > span { font-size: 13px; font-weight: 600; color: var(--text-2); }
+.receipts { display: grid; gap: 6px; }
+.receipt { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 10px; border: 1px solid var(--border); border-radius: 10px; }
+.receipt-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: none; color: var(--text); font: inherit; cursor: pointer; text-align: left; padding: 4px 0; }
+.receipt-open .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.receipt-view { display: grid; place-items: center; }
+.receipt-view img { max-width: 100%; max-height: 70vh; border-radius: 10px; }
+
+.import-pick { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: end; }
+.file-pick { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.file-pick .faint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.import-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+.import-stat { padding: 10px 12px; border-radius: 10px; background: var(--bg-sunken); display: grid; gap: 2px; font-size: 13px; color: var(--text-2); }
+.import-stat b { font-size: 18px; color: var(--text); }
+.import-stat.pos b { color: var(--income); }
+.import-stat.warn b { color: var(--warn); }
+.import-stat.neg b { color: var(--expense); }
+.mapping { margin-bottom: 12px; }
+.mapping > summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: 14px; padding: 4px 0; }
+.mapping-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; align-items: end; padding-top: 10px; }
+.import-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.import-table th { text-align: left; font-size: 12px; font-weight: 600; color: var(--text-3); padding: 8px 6px; border-bottom: 1px solid var(--border); }
+.import-table td { padding: 8px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.import-table .num { text-align: right; }
+.import-table .nowrap { white-space: nowrap; }
+.import-table .desc { min-width: 220px; max-width: 420px; }
+.import-table .desc > div { overflow-wrap: anywhere; }
+.import-table .desc .chip { margin-top: 4px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.import-table select { max-width: 220px; }
+.import-table tr.is-dup td { background: color-mix(in srgb, var(--warn-soft) 55%, transparent); }
+.import-table tr.is-error td { color: var(--text-3); }
+.import-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 14px; flex-wrap: wrap; }
+
+.cal { display: grid; gap: 6px; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.cal-week span { font-size: 12px; font-weight: 600; color: var(--text-3); text-align: center; }
+.cal-cell {
+    min-height: 92px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px;
+    border: 1px solid var(--border); border-radius: 12px; background: var(--bg-elev); color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.cal-cell:hover { border-color: var(--border-strong); }
+.cal-cell.blank { border: 0; background: none; cursor: default; }
+.cal-cell.future .cal-day { color: var(--text-3); }
+.cal-cell.today { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.cal-day { font-weight: 650; font-size: 13px; }
+.cal-amt { font-size: 12px; font-weight: 600; }
+.cal-dots { display: flex; gap: 3px; margin-top: auto; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
+.dot.out { background: var(--warn); }
+.dot.in { background: var(--income); }
+.dot.overdue { background: var(--expense); }
+.dot.done { background: var(--border-strong); }
+.cal-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; padding-top: 6px; }
+.cal-legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+@media (max-width: 720px) {
+    .import-pick { grid-template-columns: 1fr; }
+    .import-stats { grid-template-columns: 1fr 1fr; }
+    .cal-grid { gap: 3px; }
+    .cal-cell { min-height: 54px; padding: 5px; border-radius: 8px; }
+    .cal-amt { font-size: 10px; }
+    .cal-amt.pos { display: none; }
+    .dot { width: 6px; height: 6px; }
+}

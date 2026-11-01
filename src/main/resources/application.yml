@@ -3,6 +3,10 @@
 spring:
   application:
     name: paisatrack
+  servlet:
+    multipart:
+      max-file-size: 6MB               # attachments are checked against 5 MB with a clear message
+      max-request-size: 7MB
   banner:
     location: classpath:banner.txt
   profiles:
@@ -106,6 +110,8 @@ paisatrack:
     generation-cron: "0 0 * * * *"        # hourly: expected occurrences ahead of time
   notifications:
     cron: "0 10 * * * *"                  # hourly: reminders, in each user's timezone
+  attachments:
+    dir: ${ATTACHMENTS_DIR:data/attachments}   # private, outside the web root; mount a volume in prod
   fx:
     provider: ${FX_PROVIDER:none}         # "frankfurter" fetches ECB reference rates daily; none = manual rates only
     frankfurter-url: https://api.frankfurter.dev/v1

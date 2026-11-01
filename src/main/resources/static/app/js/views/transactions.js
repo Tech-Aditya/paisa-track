@@ -1,7 +1,7 @@
 // Transactions: search, filter, page through history; delete (void) and restore.
 
 import { api, errorText } from '../api.js';
-import { txRow } from '../components.js';
+import { exportMenu, txRow } from '../components.js';
 import { confirmDialog, el, empty, fill, icon, input, select, skeleton, toast } from '../dom.js';
 import { openTransactionDialog } from '../forms.js';
 import { dayHeading, money } from '../format.js';
@@ -22,6 +22,8 @@ export async function renderTransactions(root) {
     const head = el('header', { class: 'page-head' },
         el('div', {}, el('h1', { text: 'Transactions' }), el('p', { text: 'Every expense, income and transfer you have recorded.' })),
         el('div', { class: 'head-actions' },
+            el('a', { class: 'btn sm', href: '#/import' }, icon('upload'), 'Import'),
+            exportMenu((format) => `/exports/transactions?${exportParams(format)}`),
             el('button', { class: 'btn primary desktop-only', type: 'button', onclick: () => openTransactionDialog({ onSaved: reload }) },
                 icon('plus'), 'Add transaction')));
 
@@ -57,6 +59,16 @@ export async function renderTransactions(root) {
 
     fill(root, head, bar, el('section', { class: 'card' }, list));
     await loadPage(list);
+}
+
+/** The current filters (all pages), for a file export. */
+function exportParams(format) {
+    const params = new URLSearchParams({ format });
+    for (const key of ['q', 'type', 'categoryId', 'accountId', 'from', 'to']) {
+        if (filters[key]) params.set(key, filters[key]);
+    }
+    if (filters.includeVoided) params.set('includeVoided', 'true');
+    return params;
 }
 
 async function loadPage(list) {

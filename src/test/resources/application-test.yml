@@ -4,6 +4,8 @@ spring:
     banner-mode: off
 
 paisatrack:
+  attachments:
+    dir: target/test-attachments
   security:
     jwt:
       allow-ephemeral-secret: true

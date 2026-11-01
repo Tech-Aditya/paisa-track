@@ -369,6 +369,43 @@ How it works:
   currency's totals at today's rate.
 - Budgets count spending in their own currency only.
 
+## Exports, receipts, import and calendar (Phase 10)
+
+Decisions confirmed with the product owner:
+
+- **Receipts live in a private folder on the server** (`ATTACHMENTS_DIR`) behind an `AttachmentStorage`
+  interface, so object storage can replace it without touching the rest. Files are named by
+  `userId/attachmentId`, never by what the user uploaded; the stored name is sanitised and its extension
+  always matches the detected type.
+- **Statement duplicates are flagged and left unticked**, never silently dropped: the user can still tick
+  a row that really is new.
+- **Voice entry uses the browser's own speech recognition** and only fills the form. Nothing is saved
+  until the user presses Save; unsupported browsers don't show the button.
+- **No shared/family expenses yet.**
+
+How it works:
+
+- **Exports** reuse the same services as the screens (`TransactionQueryService`, `ReportService`), so a
+  file always shows the same figures as the page. Files are built in memory and never stored. Excel uses
+  streaming (SXSSF); PDF uses OpenPDF. Limits: 20,000 rows and 3 years per transaction export. CSV cells
+  starting with `= + - @` are prefixed with `'` (spreadsheet formula injection).
+- **Receipts**: type sniffed from magic bytes (JPEG, PNG, WEBP, PDF); 5 MB and 5 per transaction; SHA-256
+  stored. Upload writes to a temp file and moves it into place; if the database write fails the file is
+  removed, and a delete removes the file only after the row's delete commits. Content is served with
+  `nosniff`, `Cache-Control: private, no-store` and `Content-Security-Policy: default-src 'none'`. The web
+  app fetches files with the bearer token and shows them from `blob:` URLs.
+- **Import** is stateless: preview parses the file and returns rows; commit receives the rows the user
+  kept and creates ordinary expenses and income through `TransactionService` (same validation, audit and
+  events), all in one database transaction and once per `Idempotency-Key`. A batch row records file name
+  and count. Duplicate check: same account, same direction (transfers in/out included), same amount,
+  within 2 days; each existing entry matches at most one line.
+- **Category suggestions** (`CategorySuggestionService`): words of the text against the user's last two
+  years of categorised entries (weighted by how often), then a keyword list of well-known merchants mapped to
+  the built-in categories by system code. Shared by the add dialog and import.
+- **Calendar** (`/calendar`): daily totals from the report query, converted per day like reports; events
+  from recurring occurrences, stored EMI schedules (paid or not), lending/borrowing due dates (settled or
+  not) and each income source's expected day (received once a receipt settles that month).
+
 ## Observability
 
 - Every request gets an `X-Request-Id`. A safe id sent by the client is
@@ -416,7 +453,13 @@ How it works:
   and void.
 - **Assets bought with a loan aren't tracked** (no house or car value yet), so a home loan
   without a disbursement account makes net worth negative.
-- **Exports** (PDF, Excel, CSV) come in Phase 10.
+- **Exports are synchronous.** Large exports are capped (20,000 rows) rather than queued.
+- **Receipts are on local disk.** Several app instances need shared storage (a volume or object storage
+  behind `AttachmentStorage`); back the folder up with the database. Account deletion (when it comes)
+  must remove the user's folder too.
+- **Import reads CSV only.** Excel and PDF statements must be saved as CSV first; an imported row isn't
+  linked back to its batch, so a whole import can't be undone in one step.
+- **Suggestions are rule- and history-based**, not machine learning.
 - **Budgets don't convert.** A budget only counts spending in its own currency.
 - **Provider rates are daily reference rates** (ECB, about 30 currencies), not live market or card rates.
 - **Account balances in reports are current balances**, next to the period's money in and out;

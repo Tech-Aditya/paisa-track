@@ -80,6 +80,53 @@ export const api = {
     public: (path, body) => request(path, { method: 'POST', body, auth: false }),
 };
 
+/** Authenticated request for files (uploads, downloads): returns the raw Response when it succeeded. */
+export async function fetchFile(path, { method = 'GET', body, headers = {}, retried = false } = {}) {
+    const init = { method, headers: { ...headers }, body };
+    if (session.access) init.headers.Authorization = `Bearer ${session.access}`;
+    let res;
+    try {
+        res = await fetch(BASE + path, init);
+    } catch {
+        throw new ApiError('Network error. Check your connection and try again.', 'NETWORK');
+    }
+    if (res.status === 401) {
+        if (!retried && session.refresh && await refreshTokens()) return fetchFile(path, { method, body, headers, retried: true });
+        session.clear();
+        onSignedOut();
+        throw new ApiError('Your session has ended. Please sign in again.', 'UNAUTHENTICATED', [], 401);
+    }
+    if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        const err = json?.error ?? {};
+        throw new ApiError(json?.message ?? `Request failed (${res.status})`, err.code, err.fields ?? [], res.status);
+    }
+    return res;
+}
+
+/** Multipart POST; resolves to the response's data. */
+export async function upload(path, formData, headers = {}) {
+    const res = await fetchFile(path, { method: 'POST', body: formData, headers });
+    if (res.status === 204) return null;
+    return (await res.json()).data;
+}
+
+/** Saves a file from the API using the name the server suggests. */
+export async function download(path, fallbackName = 'download') {
+    const res = await fetchFile(path);
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') ?? '';
+    const name = decodeURIComponent(/filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1] ?? '')
+        || /filename="?([^";]+)"?/i.exec(disposition)?.[1] || fallbackName;
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), { href: url, download: name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    return name;
+}
+
 const label = (name) => {
     const last = String(name).split('.').pop().replace(/Id$/, '');
     const words = last.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();

@@ -63,10 +63,13 @@ public class TransactionQueryService {
     private final IncomeSourceService incomeSources;
     private final UserPreferencesService preferences;
     private final AuditService audit;
+    private final org.springframework.beans.factory.ObjectProvider<AttachmentCounter> attachmentCounter;
 
     TransactionQueryService(TransactionRepository repository, TransactionSqlQueries sql, AccountService accounts,
                             CategoryService categories, IncomeSourceService incomeSources,
-                            UserPreferencesService preferences, AuditService audit) {
+                            UserPreferencesService preferences, AuditService audit,
+                            org.springframework.beans.factory.ObjectProvider<AttachmentCounter> attachmentCounter) {
+        this.attachmentCounter = attachmentCounter;
         this.repository = repository;
         this.sql = sql;
         this.accounts = accounts;
@@ -263,6 +266,9 @@ public class TransactionQueryService {
         Map<UUID, AccountRef> accountRefs = accounts.refs(userId, accountIds);
         Map<UUID, CategoryRef> categoryRefs = categories.refs(userId, categoryIds);
         Map<UUID, IncomeSourceRef> sourceRefs = incomeSources.refs(userId, sourceIds);
+        AttachmentCounter counter = attachmentCounter.getIfAvailable();
+        Map<UUID, Integer> attachmentCounts = counter == null || transactions.isEmpty() ? Map.of()
+                : counter.counts(userId, transactions.stream().map(Transaction::getId).toList());
         return transactions.stream().map(t -> new TransactionResponse(
                 t.getId(), t.getType(), t.getStatus(),
                 MoneyRules.scaled(t.getAmount(), t.getCurrency()), t.getCurrency(),
@@ -275,7 +281,8 @@ public class TransactionQueryService {
                 t.getIncomePeriod() == null ? null : YearMonth.from(t.getIncomePeriod()),
                 t.getLoanId(),
                 t.getToAmount() == null ? null : MoneyRules.scaled(t.getToAmount(), t.getToCurrency()), t.getToCurrency(),
-                t.getVoidedAt(), t.getVoidReason(), t.getCreatedAt(), t.getUpdatedAt())).toList();
+                t.getVoidedAt(), t.getVoidReason(), t.getCreatedAt(), t.getUpdatedAt(),
+                attachmentCounts.getOrDefault(t.getId(), 0))).toList();
     }
 
     private static AccountInfo accountInfo(Map<UUID, AccountRef> refs, UUID id) {

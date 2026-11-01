@@ -15,8 +15,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.paisatrack.modules.transaction.CategorySuggestionService;
 import com.paisatrack.modules.transaction.TransactionQueryService;
 import com.paisatrack.modules.transaction.TransactionService;
+import com.paisatrack.modules.transaction.TransactionType;
 import com.paisatrack.modules.transaction.dto.DailySummaryResponse;
 import com.paisatrack.modules.transaction.dto.TransactionFilter;
 import com.paisatrack.modules.transaction.dto.TransactionResponse;
@@ -32,11 +34,14 @@ class TransactionController {
 
     private final TransactionService transactions;
     private final TransactionQueryService queries;
+    private final CategorySuggestionService suggestions;
     private final CurrentUser currentUser;
 
-    TransactionController(TransactionService transactions, TransactionQueryService queries, CurrentUser currentUser) {
+    TransactionController(TransactionService transactions, TransactionQueryService queries, CategorySuggestionService suggestions,
+                          CurrentUser currentUser) {
         this.transactions = transactions;
         this.queries = queries;
+        this.suggestions = suggestions;
         this.currentUser = currentUser;
     }
 
@@ -51,6 +56,18 @@ class TransactionController {
             description = "Defaults to today in your timezone. Transfers and voided entries are excluded.")
     ApiResponse<DailySummaryResponse> dailySummary(@RequestParam(required = false) LocalDate date) {
         return ApiResponse.ok(queries.dailySummary(currentUser.id(), date));
+    }
+
+    @GetMapping("/api/v1/transactions/suggest-category")
+    @Operation(summary = "Suggest categories for a merchant or description",
+            description = "Up to 3, from your own past entries first, then well-known merchants. type is EXPENSE (default) or INCOME.")
+    ApiResponse<List<CategorySuggestionService.Suggestion>> suggestCategory(@RequestParam(required = false) String text,
+                                                                         @RequestParam(defaultValue = "EXPENSE") TransactionType type) {
+        if (type != TransactionType.EXPENSE && type != TransactionType.INCOME) {
+            return ApiResponse.ok(List.of());
+        }
+        String t = text == null ? "" : text.length() > 200 ? text.substring(0, 200) : text;
+        return ApiResponse.ok(suggestions.suggest(currentUser.id(), t, type));
     }
 
     @GetMapping("/api/v1/transactions/{id}")

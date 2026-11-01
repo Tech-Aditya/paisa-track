@@ -3,11 +3,12 @@
 A personal finance, daily expense and money management API. It is built as a
 modular Spring Boot monolith on PostgreSQL.
 
-> **Status:** Phases 1-9 are complete: foundation and security; accounts,
+> **Status:** Phases 1-10 are complete: foundation and security; accounts,
 > categories and transactions; salary, budgets and the dashboard; lending and
 > borrowing; loans and EMIs; recurring transactions and notifications; reports
-> and analytics; multi-currency; a complete web app. Exports, attachments and
-> advanced features come next, in Phase 10.
+> and analytics; multi-currency; a complete web app; exports (PDF, Excel, CSV),
+> receipt attachments, bank statement import, voice entry, category suggestions
+> and a financial calendar. Production hardening comes next, in Phase 11.
 > Design decisions are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Tech stack
@@ -108,6 +109,7 @@ Environment variables:
 | `APP_PUBLIC_URL` | no | Public address (e.g. `https://paisatrack.example.com`), shown in the startup summary |
 | `LOG_FILE` | no | Log file path for dev, or for prod with the `logfile` profile (defaults `logs/paisatrack.log` / `logs/paisatrack.json`; prod rotates at 50 MB × 14) |
 | `FX_PROVIDER` | no | `frankfurter` fetches ECB reference rates daily (free, no key); default `none` = your own rates only |
+| `ATTACHMENTS_DIR` | no | Private folder for receipt files (default `data/attachments`). Not served directly; back it up with the database. |
 | `BANNER_MODE` | no | Prod banner: `off` (default, keeps stdout pure JSON) or `console` |
 | `APP_ENVIRONMENT` | no | `service.environment` in logs (default `production`) |
 | `SLOW_REQUEST_THRESHOLD` | no | Requests at least this slow log at WARN (default `2s`) |
@@ -308,6 +310,42 @@ budget thresholds and expected salary. Checked hourly in each user's timezone; o
 | POST | `/notifications/refresh` | Check for due reminders now (never duplicates) |
 | GET, PUT | `/notifications/preferences` | Per type: on/off and days before (0-30, default 3) |
 
+**Exports** (all bearer). Files are generated on request and never stored. `format=CSV|XLSX|PDF`.
+CSV has a BOM (Excel opens ₹ correctly) and cells that a spreadsheet would run as a formula are prefixed
+with `'`. Excel keeps amounts as numbers.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/exports/transactions?format=&from=&to=&type=&categoryId=&accountId=&q=&includeVoided=` | The filtered list (oldest first, up to 20,000 rows and 3 years) with income/expense totals per currency |
+| GET | `/exports/reports/{daily\|weekly\|monthly\|yearly\|custom}?format=` | Same parameters and figures as `/reports/...`: summary with comparison, categories, by day/month, accounts, insights, conversions |
+
+**Receipts** (all bearer). JPG, PNG, WEBP or PDF up to 5 MB, five per transaction. The type is read from the
+file's content, not its name. Files sit in a private folder (`ATTACHMENTS_DIR`) and are only served to
+their owner, with `nosniff` and a locked-down Content-Security-Policy.
+
+| Method | Path | Description |
+|---|---|---|
+| GET, POST | `/transactions/{id}/attachments` | List, or upload (multipart field `file`) |
+| GET | `/attachments/{id}/content` | The file (owner only) |
+| DELETE | `/attachments/{id}` | Remove it |
+
+Transactions carry `attachmentCount`.
+
+**Statement import** (all bearer). Two steps: preview (nothing saved), then commit the rows you keep.
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/imports/preview` | Multipart `file` (CSV, 2 MB, 2,000 rows) and `accountId`. Finds the header row and the date, narration and withdrawal/deposit (or signed amount) columns; reads Indian date and amount styles. Each row gets a suggested category; rows matching an existing entry on that account (same amount, money in/out, within 2 days) or an earlier line in the file are flagged and unticked. Override columns with `dateColumn`, `descriptionColumn`, `debitColumn`, `creditColumn`, `amountColumn`, `dateFormat`. |
+| POST | `/imports/commit` | `accountId`, `fileName`, `items[]` (date, type, amount, categoryId, description). All saved or none; send `Idempotency-Key`. |
+| GET | `/imports` | Your last 10 imports |
+
+**Suggestions and calendar** (all bearer).
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/transactions/suggest-category?text=&type=EXPENSE\|INCOME` | Up to 3 categories: what you used for similar entries first (`HISTORY`), then well-known Indian merchants (`KEYWORD`) |
+| GET | `/calendar?month=YYYY-MM&currency=` | Each day's income and spending (converted), plus bills, EMIs, lending due dates and expected income with their status |
+
 Ledger entries a loan creates (`LOAN_DISBURSEMENT`, `LOAN_PRINCIPAL` and the interest expense) carry `loanId`
 and can only be changed through the loan.
 
@@ -351,12 +389,12 @@ src/main/java/com/paisatrack/
     <module>/dto/        request and response records
     <module>/web/        REST controllers
     auth, user, account, category, transaction, income, budget, people, debt, loan, recurring,
-                         notification, report, currency, dashboard
+                         notification, report, currency, dashboard, export, attachment, imports
 src/main/resources/
   application.yml               shared settings
   application-dev.yml           local development (default)
   application-prod.yml          production
-  db/migration/                 Flyway migrations (V1 … V13)
+  db/migration/                 Flyway migrations (V1 … V14)
   logback-spring.xml            logging per profile
   banner.txt                    startup banner
   static/app/                   web app: index.html, css/, js/ (ES modules, no build step)
@@ -378,13 +416,18 @@ inserted as text.
   and net worth (less loans outstanding); EMIs missed or due; a 6-month trend;
   recent activity. Date presets: this month, last month, 30 days, custom.
 - **Transactions:** search, filter by type, category, account and dates; grouped
-  by day with daily totals; click a row to edit it; delete (void) and restore; paging.
+  by day with daily totals; click a row to edit it; delete (void) and restore; paging;
+  **Export** the filtered list as CSV, Excel or PDF; a paperclip marks entries with receipts.
+- **Import statement:** pick the account and a bank CSV; check the preview (duplicates
+  and unreadable lines flagged and unticked), change categories or columns, import.
+- **Calendar:** a month grid of daily spending and income with dots for bills, EMIs,
+  lending and expected salary; tap a day for details; a list of the month's dates.
 - **Reports:** day, week, month, year or custom range (with account, category and
   type filters); previous/next period; income, spending, net cash flow and daily
   average with change vs the previous period; insights; spending chart; categories
   with change; where money moved (spending, interest, transfers, card bills,
   investments, loan principal, lending); accounts in/out; budgets; salary used;
-  largest expenses.
+  largest expenses. **Export** any report as PDF, Excel or CSV.
 - **Accounts:** assets, card dues and loans, net worth; each account opens its
   details and recent activity with edit, make default, deactivate/activate, and
   add expense or pay the card bill. Income sources: expected amount (with history
@@ -410,7 +453,10 @@ inserted as text.
   reopen, delete and void.
 - **Add:** one dialog for expense, income or transfer, plus dialogs for budgets,
   accounts and income sources. Errors show next to the field. A double submit
-  never creates two entries.
+  never creates two entries. Typing a merchant suggests a category; attach receipts
+  (also later, when editing; images preview in place, PDFs open in a tab). **Speak**
+  (browsers with speech recognition) fills amount, merchant, description and date
+  from "Spent 250 at Swiggy for lunch yesterday"; you check and save.
 - Light and dark themes. Desktop: grouped sidebar with quick add. Phones: bottom
   tab bar (Home, Activity, Reports, Bills, More), bottom-sheet dialogs with the
   save button always in view, 44 px touch targets. Amounts accept `1,00,000`.
