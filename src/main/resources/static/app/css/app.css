@@ -613,6 +613,30 @@ dialog.sheet[open] { animation: rise .18s ease-out; }
 .report-table td.num, .report-table th:not(:first-child) { text-align: right; }
 .report-note { margin-top: 16px; font-size: 12.5px; line-height: 1.6; }
 
+/* ---------- Accounts, budgets, categories ---------- */
+
+.muted-row { opacity: .62; }
+.budget-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.budget-card { display: grid; gap: 8px; align-content: start; padding: 16px; border-radius: 14px; border: 1px solid var(--border); background: var(--bg-elev); }
+.budget-card .card-head { margin-bottom: 4px; }
+.budget-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.cat-tree { display: grid; gap: 6px; }
+.cat-group { border: 1px solid var(--border); border-radius: 14px; padding: 4px 12px; }
+.cat-item.sub { padding-left: 22px; position: relative; }
+.cat-item.sub::before { content: ""; position: absolute; left: 8px; top: 50%; width: 8px; border-top: 1px solid var(--border-strong); }
+.cat-item.sub .title { font-weight: 500; }
+.quick-cats { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-btn {
+    height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-sunken);
+    color: var(--text-2); font-size: 13px; font-weight: 550; cursor: pointer;
+}
+.chip-btn:hover { color: var(--text); border-color: var(--border-strong); }
+.chip-btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.offline-banner {
+    position: fixed; left: 50%; top: 12px; transform: translateX(-50%); z-index: 90; display: flex; align-items: center; gap: 8px;
+    padding: 8px 14px; border-radius: 999px; background: var(--warn); color: #1d1300; font-size: 13px; font-weight: 600; box-shadow: var(--shadow-lg);
+}
+
 /* ---------- Notifications ---------- */
 
 .bell { position: relative; }

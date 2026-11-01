@@ -7,6 +7,9 @@ import { openTransactionDialog } from './forms.js';
 import { initials } from './format.js';
 import { bellButton, refreshNotifications } from './notifications.js';
 import { store } from './store.js';
+import { renderAccounts } from './views/accounts.js';
+import { renderBudgets } from './views/budgets.js';
+import { renderCategories } from './views/categories.js';
 import { renderDebts } from './views/debts.js';
 import { renderLoans } from './views/loans.js';
 import { renderOverview } from './views/overview.js';
@@ -19,9 +22,12 @@ const ROUTES = {
     '#/overview': { label: 'Overview', short: 'Home', iconName: 'home', group: 'Money', render: renderOverview },
     '#/transactions': { label: 'Transactions', short: 'Activity', iconName: 'list', group: 'Money', render: renderTransactions },
     '#/reports': { label: 'Reports', short: 'Reports', iconName: 'chart', group: 'Money', render: renderReports },
+    '#/accounts': { label: 'Accounts', short: 'Accounts', iconName: 'wallet', group: 'Money', render: renderAccounts },
+    '#/budgets': { label: 'Budgets', short: 'Budgets', iconName: 'target', group: 'Plan', render: renderBudgets },
     '#/recurring': { label: 'Bills & recurring', short: 'Bills', iconName: 'repeat', group: 'Plan', render: renderRecurring },
     '#/loans': { label: 'Loans & EMIs', short: 'Loans', iconName: 'bank', group: 'Plan', render: renderLoans },
     '#/debts': { label: 'Lending', short: 'Lending', iconName: 'people', group: 'Plan', render: renderDebts },
+    '#/categories': { label: 'Categories', short: 'Categories', iconName: 'list', group: 'Account', render: renderCategories },
     '#/settings': {
         label: 'Settings', short: 'Settings', iconName: 'settings', group: 'Account',
         render: (root) => renderSettings(root, {
@@ -199,6 +205,13 @@ async function signOut() {
 }
 
 whenSignedOut(showAuth);
+
+// Offline: say so plainly instead of letting saves fail one by one.
+const offline = el('div', { class: 'offline-banner', role: 'status', hidden: navigator.onLine },
+    icon('alert'), "You're offline. Changes can't be saved until you reconnect.");
+document.body.append(offline);
+window.addEventListener('offline', () => { offline.hidden = false; });
+window.addEventListener('online', () => { offline.hidden = true; toast('Back online'); });
 window.addEventListener('hashchange', route);
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => renderNav());
 // Re-check reminders when the tab comes back after a while.

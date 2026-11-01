@@ -20,6 +20,20 @@ function accountChoices(accounts, selectedId, keep) {
 
 const PATHS = { EXPENSE: '/expenses', INCOME: '/income', TRANSFER: '/transfers' };
 
+/** Categories used most recently for expenses, newest first (this device only): one tap to pick again. */
+const recentCategories = {
+    get() {
+        try { return JSON.parse(localStorage.getItem('pt.recentCategories') ?? '[]'); } catch { return []; }
+    },
+    add(id) {
+        try { localStorage.setItem('pt.recentCategories', JSON.stringify([id, ...this.get().filter((x) => x !== id)].slice(0, 6))); } catch { /* ignore */ }
+    },
+};
+
+function flatCategories(tree) {
+    return tree.flatMap((c) => [{ id: c.id, name: c.name }, ...(c.children ?? []).map((s) => ({ id: s.id, name: s.name, parent: c.name }))]);
+}
+
 /** The account last used for a kind of entry, remembered on this device (a convenience only). */
 const lastAccount = {
     get(kind, accounts) {
@@ -115,7 +129,17 @@ export async function openTransactionDialog({ type = 'EXPENSE', preset = {}, exi
                     field('Payer', input('payer', { maxlength: 100, placeholder: 'Optional', value: p.counterparty ?? '' })),
                     note())];
             }
-            return [typeSwitch, amountField, el('div', { class: 'form-grid' },
+            const known = new Map(flatCategories(expenseCats).map((c) => [c.id, c]));
+            const recent = recentCategories.get().map((id) => known.get(id)).filter(Boolean);
+            const quick = recent.length && !editing ? el('div', { class: 'quick-cats', role: 'group', 'aria-label': 'Recent categories' },
+                recent.map((c) => el('button', { type: 'button', class: 'chip-btn', text: c.name, title: c.parent ? `${c.parent} › ${c.name}` : c.name,
+                    'aria-pressed': String(c.id === p.categoryId),
+                    onclick: (ev) => {
+                        const f = ev.target.closest('form');
+                        f.elements.namedItem('categoryId').value = c.id;
+                        f.querySelectorAll('.chip-btn').forEach((b) => b.setAttribute('aria-pressed', String(b === ev.target)));
+                    } }))) : null;
+            return [typeSwitch, amountField, quick, el('div', { class: 'form-grid' },
                 field('Category', select('categoryId', [{ value: '', label: 'Choose a category' }, ...categoryOptions(expenseCats, p.categoryId)], { required: true }), { span: true }),
                 field('Paid from', select('accountId', accountChoices(accounts, p.accountId, existing?.account))),
                 date,
@@ -146,6 +170,7 @@ export async function openTransactionDialog({ type = 'EXPENSE', preset = {}, exi
             } else {
                 await api.post(PATHS[current], body, { 'Idempotency-Key': idempotencyKey });
                 lastAccount.set(current, current === 'TRANSFER' ? body.fromAccountId : body.accountId);
+                if (current === 'EXPENSE' && body.categoryId) recentCategories.add(body.categoryId);
             }
             store.invalidate('accounts', 'sources');
             toast(editing ? 'Changes saved' : `${titleCase(current)} saved`);
@@ -190,31 +215,44 @@ export async function openBudgetDialog({ onSaved }) {
 
 const ACCOUNT_TYPES = ['SAVINGS', 'CURRENT', 'CREDIT_CARD', 'CASH', 'WALLET', 'INVESTMENT', 'OTHER'];
 
-export async function openAccountDialog({ onSaved }) {
+/** New account, or edit one (`existing`): type and currency are fixed once created. */
+export async function openAccountDialog({ existing = null, onSaved }) {
     const [me, currencies] = await Promise.all([store.me(), store.currencies()]);
-    let type = 'SAVINGS';
+    const editing = Boolean(existing);
+    let type = existing?.type ?? 'SAVINGS';
+    const e = existing ?? {};
     const sheet = openSheet({
-        title: 'New account',
-        submitLabel: 'Add account',
+        title: editing ? `Edit ${existing.name}` : 'New account',
+        submitLabel: editing ? 'Save changes' : 'Add account',
         fields: () => [
-            field('Name', input('name', { maxlength: 60, required: true, placeholder: 'e.g. HDFC Savings' })),
+            field('Name', input('name', { maxlength: 60, required: true, placeholder: 'e.g. HDFC Savings', value: e.name ?? '' })),
             el('div', { class: 'form-grid' },
-                field('Type', select('type', ACCOUNT_TYPES.map((t) => ({ value: t, label: titleCase(t), selected: t === type })),
-                    { onchange: (e) => { type = e.target.value; sheet.render(); } })),
-                field('Currency', select('currency', currencyOptions(currencies, me.preferences.defaultCurrency))),
-                field(type === 'CREDIT_CARD' ? 'Amount owed now' : 'Current balance', input('openingBalance', { inputmode: 'decimal', placeholder: '0.00' })),
-                type === 'CREDIT_CARD' ? field('Credit limit', input('creditLimit', { inputmode: 'decimal', placeholder: 'Optional' })) : null,
-                field('Bank / provider', input('institution', { maxlength: 100, placeholder: 'Optional' })),
-                field('Last 4 digits', input('accountLast4', { maxlength: 4, inputmode: 'numeric', placeholder: 'Optional' }))),
+                editing ? null : field('Type', select('type', ACCOUNT_TYPES.map((t) => ({ value: t, label: titleCase(t), selected: t === type })),
+                    { onchange: (ev) => { type = ev.target.value; sheet.render(); } })),
+                editing ? null : field('Currency', select('currency', currencyOptions(currencies, me.preferences.defaultCurrency))),
+                field(type === 'CREDIT_CARD' ? (editing ? 'Amount owed when added' : 'Amount owed now') : (editing ? 'Opening balance' : 'Current balance'),
+                    input('openingBalance', { inputmode: 'decimal', placeholder: '0.00', value: e.openingBalance ?? '' })),
+                type === 'CREDIT_CARD' ? field('Credit limit', input('creditLimit', { inputmode: 'decimal', placeholder: 'Optional', value: e.creditLimit ?? '' })) : null,
+                field('Bank / provider', input('institution', { maxlength: 100, placeholder: 'Optional', value: e.institution ?? '' })),
+                editing ? field('Notes', input('notes', { maxlength: 500, placeholder: 'Optional', value: e.notes ?? '' }))
+                    : field('Last 4 digits', input('accountLast4', { maxlength: 4, inputmode: 'numeric', placeholder: 'Optional' }))),
+            editing ? el('p', { class: 'faint', text: 'Changing the opening balance moves the current balance by the same amount; transactions stay as they are.' }) : null,
         ],
         submit: async (form) => {
-            await api.post('/accounts', {
-                name: value(form, 'name'), type, currency: value(form, 'currency')?.toUpperCase(),
-                openingBalance: amount(form, 'openingBalance'), creditLimit: amount(form, 'creditLimit'),
-                institution: value(form, 'institution'), accountLast4: value(form, 'accountLast4'),
-            });
+            if (editing) {
+                await api.patch(`/accounts/${existing.id}`, {
+                    name: value(form, 'name'), openingBalance: amount(form, 'openingBalance'), creditLimit: amount(form, 'creditLimit'),
+                    institution: value(form, 'institution') ?? '', notes: value(form, 'notes') ?? '',
+                });
+            } else {
+                await api.post('/accounts', {
+                    name: value(form, 'name'), type, currency: value(form, 'currency')?.toUpperCase(),
+                    openingBalance: amount(form, 'openingBalance'), creditLimit: amount(form, 'creditLimit'),
+                    institution: value(form, 'institution'), accountLast4: value(form, 'accountLast4'),
+                });
+                toast('Account added');
+            }
             store.invalidate('accounts');
-            toast('Account added');
             onSaved?.();
         },
     });

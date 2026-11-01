@@ -173,14 +173,16 @@ export function openSheet({ title, fields, submitLabel = 'Save', submit, onClose
 ender() after changes. */
 export function openPanel({ title, content, onClose }) {
     const body = el('div', { class: 'sheet-body' });
+    const heading = el('h2', { text: title });
+    const setTitle = (text) => { heading.textContent = text; };
     const dialog = el('dialog', { class: 'sheet' },
-        el('div', { class: 'sheet-head' }, el('h2', { text: title }),
+        el('div', { class: 'sheet-head' }, heading,
             el('button', { class: 'btn ghost icon-only', type: 'button', 'aria-label': 'Close', onclick: () => close() }, icon('x'))),
         body);
     const close = () => { dialog.close(); dialog.remove(); onClose?.(); };
     const render = async () => {
         try {
-            fill(body, await content({ close, render }));
+            fill(body, await content({ close, render, setTitle }));
         } catch (err) {
             fill(body, empty(err?.message ?? 'Something went wrong', 'alert'));
         }

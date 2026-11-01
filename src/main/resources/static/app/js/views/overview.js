@@ -134,10 +134,10 @@ function content(d, range, reload, report = null) {
     const grid = el('div', { class: 'grid' },
         el('div', { class: 'col-8' }, card('Daily spending', { sub: spanLabel }, dailyChart(d))),
         el('div', { class: 'col-4' }, card('By category', { sub: spanLabel }, categoryBreakdown(d))),
-        el('div', { class: 'col-4' }, card('Budgets', { action: smallButton('New', () => openBudgetDialog({ onSaved: reload })) }, budgets(d))),
+        el('div', { class: 'col-4' }, card('Budgets', { action: el('a', { class: 'btn sm ghost', href: '#/budgets' }, 'Open', icon('right')) }, budgets(d))),
         el('div', { class: 'col-4' }, card('Upcoming bills', {
             action: el('a', { class: 'btn sm ghost', href: '#/recurring' }, 'Open', icon('right')) }, billsCard(d, reload))),
-        el('div', { class: 'col-4' }, card('Accounts', { action: smallButton('Account', () => openAccountDialog({ onSaved: reload })) }, accounts(d))),
+        el('div', { class: 'col-4' }, card('Accounts', { action: el('a', { class: 'btn sm ghost', href: '#/accounts' }, 'Open', icon('right')) }, accounts(d))),
         el('div', { class: 'col-8' }, card('Income vs expense', { sub: 'last 6 months' }, trend(d))),
         el('div', { class: 'col-4' }, card('Expected income', { sub: 'this month',
             action: smallButton('Source', () => openIncomeSourceDialog({ onSaved: reload })) }, expectedIncome(d, reload))),
@@ -172,7 +172,10 @@ function categoryBreakdown(d) {
 
 function budgets(d) {
     const live = d.budgets.filter((b) => b.utilization && b.utilization.status !== 'NOT_IN_EFFECT');
-    if (!live.length) return empty('Set a monthly limit to see how you are doing.', 'target');
+    if (!live.length) {
+        return empty('Set a monthly limit to see how you are doing.', 'target',
+            el('button', { class: 'btn sm', type: 'button', onclick: () => openBudgetDialog({ onSaved: () => { location.hash = '#/budgets'; } }) }, icon('plus'), 'New budget'));
+    }
     return el('div', {}, live.map((b) => {
         const u = b.utilization;
         const tone = u.status === 'EXCEEDED' ? 'bad' : u.status === 'ALERT' ? 'warn' : '';

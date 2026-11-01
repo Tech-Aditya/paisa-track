@@ -117,7 +117,7 @@ function openRuleDetail(row, onChanged) {
     openPanel({
         title: row.name,
         onClose: () => { if (changed) onChanged?.(); },
-        content: async ({ render, close }) => {
+        content: async ({ render, close, setTitle }) => {
             let r;
             let occurrences;
             try {
@@ -125,6 +125,7 @@ function openRuleDetail(row, onChanged) {
             } catch (e) {
                 return empty(errorText(e), 'alert');
             }
+            setTitle(r.name);
             const after = (msg) => { changed = true; toast(msg); render(); };
             const act = (path, msg) => async () => {
                 try { await api.post(`/recurring-transactions/${r.id}/${path}`); after(msg); } catch (e) { toast(errorText(e), 'error'); }

@@ -3,10 +3,11 @@
 A personal finance, daily expense and money management API. It is built as a
 modular Spring Boot monolith on PostgreSQL.
 
-> **Status:** Phases 1-8 are complete: foundation and security; accounts,
+> **Status:** Phases 1-9 are complete: foundation and security; accounts,
 > categories and transactions; salary, budgets and the dashboard; lending and
 > borrowing; loans and EMIs; recurring transactions and notifications; reports
-> and analytics; multi-currency. Frontend completion comes next, in Phase 9.
+> and analytics; multi-currency; a complete web app. Exports, attachments and
+> advanced features come next, in Phase 10.
 > Design decisions are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Tech stack
@@ -384,6 +385,14 @@ inserted as text.
   with change; where money moved (spending, interest, transfers, card bills,
   investments, loan principal, lending); accounts in/out; budgets; salary used;
   largest expenses.
+- **Accounts:** assets, card dues and loans, net worth; each account opens its
+  details and recent activity with edit, make default, deactivate/activate, and
+  add expense or pay the card bill. Income sources: expected amount (with history
+  by month), record this month, edit, pause/resume.
+- **Budgets:** every budget with this period's use, days left and daily allowance;
+  edit limit, end date and alert thresholds; pause/resume; delete.
+- **Categories:** spending and income trees; add categories and subcategories,
+  rename, hide/show, delete unused ones.
 - **Bills & recurring:** what is due or overdue with **Paid / Received** (actual
   amount, date and account) and **Skip**; each rule opens its dates, edit, pause,
   resume, stop, delete and undo.
@@ -406,4 +415,6 @@ inserted as text.
   tab bar (Home, Activity, Reports, Bills, More), bottom-sheet dialogs with the
   save button always in view, 44 px touch targets. Amounts accept `1,00,000`.
   Press `n` anywhere to add a transaction. Confirmations use in-app dialogs; the add
-  dialog remembers the last account you used.
+  dialog remembers the last account and offers your recent categories as one-tap
+  chips. Loans and lending records can be edited. An offline notice appears when the
+  connection drops.

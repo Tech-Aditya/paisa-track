@@ -172,6 +172,7 @@ export function openDebtDetail(summaryRow, onChanged) {
                 : el('p', { class: 'faint', text: 'No repayments yet.' });
 
             const actions = el('div', { class: 'head-actions' },
+                el('button', { class: 'btn', type: 'button', onclick: () => openDebtEdit(d, path, () => after('Saved')) }, icon('edit'), 'Edit'),
                 open ? el('button', { class: 'btn primary', type: 'button',
                     onclick: () => openRepaymentDialog(d, () => after('Repayment recorded')) }, icon('plus'), 'Record repayment') : null,
                 open ? el('button', { class: 'btn', type: 'button', onclick: act(async () => {
@@ -202,6 +203,29 @@ export function openDebtDetail(summaryRow, onChanged) {
                 history,
                 actions,
             ];
+        },
+    });
+}
+
+function openDebtEdit(d, path, onSaved) {
+    openSheet({
+        title: 'Edit record',
+        submitLabel: 'Save changes',
+        fields: () => [
+            field('What for', input('description', { maxlength: 200, value: d.description ?? '', placeholder: 'Optional' })),
+            el('div', { class: 'form-grid' },
+                field('Due by', input('dueDate', { type: 'date', value: d.dueDate ?? '' })),
+                field('Remind me on', input('remindOn', { type: 'date', value: d.remindOn ?? '' }))),
+            field('Notes', input('notes', { maxlength: 1000, value: d.notes ?? '', placeholder: 'Optional' })),
+            el('p', { class: 'faint', text: 'The amount can only change while there are no repayments.' }),
+        ],
+        submit: async (form) => {
+            const due = form.dueDate.value || null;
+            await api.patch(path, {
+                description: form.description.value.trim(), notes: form.notes.value.trim(), dueDate: due,
+                clearDueDate: due ? null : Boolean(d.dueDate), remindOn: form.remindOn.value || null,
+            });
+            onSaved();
         },
     });
 }

@@ -96,7 +96,7 @@ export function openLoanDetail(row, onChanged) {
     openPanel({
         title: row.name,
         onClose: () => { if (changed) onChanged?.(); },
-        content: async ({ render, close }) => {
+        content: async ({ render, close, setTitle }) => {
             let l;
             let schedule;
             try {
@@ -105,6 +105,7 @@ export function openLoanDetail(row, onChanged) {
                 return empty(errorText(e), 'alert');
             }
             const c = l.currency;
+            setTitle(l.name);
             const after = (msg) => { changed = true; toast(msg); render(); };
             const open = l.status === 'ACTIVE';
             const active = l.payments.filter((p) => !p.voided);
@@ -167,6 +168,8 @@ export function openLoanDetail(row, onChanged) {
                 open ? el('button', { class: 'btn', type: 'button',
                     onclick: () => openPrepayDialog(l, () => after('Prepayment recorded')).catch((e) => toast(errorText(e), 'error')) },
                 icon('trend'), 'Prepay') : null,
+                el('button', { class: 'btn ghost', type: 'button', onclick: () => openLoanEdit(l, () => after('Loan saved')).catch((e) => toast(errorText(e), 'error')) },
+                    icon('edit'), 'Edit'),
                 active.length === 0 ? el('button', { class: 'btn ghost danger', type: 'button', onclick: async () => {
                     if (!await confirmDialog({ title: 'Delete this loan?', danger: true, confirmLabel: 'Delete loan',
                         message: 'Any disbursement entry is removed from your account too.' })) return;
@@ -189,6 +192,30 @@ export function openLoanDetail(row, onChanged) {
                 el('h3', { class: 'section-title', text: 'Payments' }),
                 payments,
             ];
+        },
+    });
+}
+
+async function openLoanEdit(l, onSaved) {
+    const accounts = await store.accounts();
+    openSheet({
+        title: `Edit ${l.name}`,
+        submitLabel: 'Save changes',
+        fields: () => [
+            el('div', { class: 'form-grid' },
+                field('Name', input('name', { value: l.name, maxlength: 80, required: true })),
+                field('Lender', input('lender', { value: l.lender ?? '', maxlength: 100 })),
+                field('Type', select('type', TYPES.map((t) => ({ value: t, label: titleCase(t), selected: t === l.type })))),
+                field('EMIs paid from', select('paymentAccountId', accountOptions(accounts, l.paymentAccount?.id)))),
+            field('Notes', input('notes', { value: l.notes ?? '', maxlength: 1000, placeholder: 'Optional' })),
+            el('p', { class: 'faint', text: l.installmentsPaid ? 'Amount, rate and tenure are fixed once EMIs are paid.' : 'To change amount, rate or tenure, delete and add the loan again before paying any EMI.' }),
+        ],
+        submit: async (form) => {
+            await api.patch(`/loans/${l.id}`, {
+                name: form.name.value.trim(), lender: form.lender.value.trim(), type: form.type.value,
+                paymentAccountId: form.paymentAccountId.value || null, notes: form.notes.value.trim(),
+            });
+            onSaved();
         },
     });
 }
